@@ -1,0 +1,81 @@
+# Authenticator for Velocity - main configuration. Changes need a proxy restart.
+
+# Unique id of this node in bridge messages and in the node list. Must differ from every Paper server's node id.
+node-id: velocity-1
+
+# The shared MariaDB database (10.11 or newer).
+#
+# The proxy sits outside the infrastructure and reaches the database on its public address; the Paper
+# servers sit inside and use the private one. Describe both endpoints, then pick one with "use".
+#
+#   use        - the endpoint tried first. The proxy normally uses "public".
+#   fallback   - endpoints tried, in order, if "use" cannot be reached (e.g. [private]). Empty: none.
+#                The choice is made at startup; restart after the network is back to return to "use".
+#   ssl-mode   - disable | trust | verify-ca | verify-full.
+#                "disable" is not allowed on the public endpoint, which crosses an untrusted network.
+#                trust encrypts but does not check the certificate; verify-full checks chain and host name.
+#   properties - extra driver options. Files must be given as a URI, e.g.
+#                serverSslCert: "file:///etc/authenticator/db-ca.pem"   (a bare path does not work)
+#
+# The proxy is the only node that changes the schema, so its database user needs CREATE and ALTER on top of
+# SELECT, INSERT, UPDATE and DELETE. See docs/DATABASE.md.
+database:
+  use: public
+  fallback: []
+  name: authenticator
+  pool-size: 6
+  connection-timeout-ms: 10000
+  endpoints:
+    public:
+      host: db.example.com
+      port: 3306
+      user: authenticator_proxy
+      password: ""
+      ssl-mode: verify-full
+      properties: {}
+    private:
+      host: 10.0.0.5
+      port: 3306
+      user: authenticator_proxy
+      password: ""
+      ssl-mode: disable
+      properties: {}
+
+# The shared Redis that carries messages between the proxy and the servers. The database stays the source
+# of truth: if Redis is down, players are still checked against the database, just a little later.
+#
+# "use", "fallback" and the two endpoints work like in "database". The public endpoint must have ssl: true.
+#
+#   secret            - REQUIRED, at least 16 characters, identical on the proxy and on every server.
+#                       Every message is signed with it; anything else is ignored.
+#   max-skew-seconds  - messages whose time differs from this machine's clock by more than this are
+#                       dropped, so keep the clocks of all machines synchronized (NTP).
+#   verify-hostname   - with ssl, check that the certificate is valid for "host".
+#   ssl-trust-store   - PKCS12 (or .jks) file with the certificates to trust, for a server whose
+#                       certificate comes from your own CA. Empty: trust what Java trusts.
+redis:
+  use: public
+  fallback: []
+  prefix: "authenticator:"
+  secret: ""
+  max-skew-seconds: 30
+  endpoints:
+    public:
+      host: redis.example.com
+      port: 6379
+      user: ""
+      password: ""
+      ssl: true
+      verify-hostname: true
+      ssl-trust-store: ""
+      ssl-trust-store-password: ""
+      database: 0
+      connect-timeout-ms: 5000
+    private:
+      host: 10.0.0.6
+      port: 6379
+      user: ""
+      password: ""
+      ssl: false
+      database: 0
+      connect-timeout-ms: 5000

@@ -3,7 +3,7 @@
 > Plugin autoryzacyjny dla sieci Velocity + Paper 26.2: funkcjonalny klon `mineLogin`, przepisany od zera.
 > Paper oparty wyłącznie na MineAcademy Foundation, MariaDB jako źródło prawdy, Redis jako bridge proxy ⇄ backend.
 
-Status: **plan do zatwierdzenia** — kod nie jest jeszcze pisany.
+Status: **plan zatwierdzony. Etapy 1 i 2 zrealizowane** (szczegóły w sekcji „Status realizacji” na końcu), etapy 3–5 przed nami.
 
 ---
 
@@ -58,7 +58,9 @@ Status: **plan do zatwierdzenia** — kod nie jest jeszcze pisany.
 3. Sprawdzone klasy z JustBans (`Database`, `DatabaseConfig`, `Migrator`, `RedisBus`, `HmacSigner`,
    `Envelope`) skopiować do `common` i dostosować. **Decyzja:** kopia vs wydzielona biblioteka
    `kingdom-commons` — rekomendacja: na teraz kopia, żeby nie wiązać cykli wydań.
-4. Testy: JUnit 5 + Testcontainers (MariaDB, Redis), jak w JustBans. Konfiguracja CI do ustalenia.
+4. Testy: JUnit 5. Testy integracyjne działają na prawdziwej MariaDB i Redisie podanych z zewnątrz (zmienna środowiskowa,
+   `redis-server` w `PATH`), bez Testcontainers — wymaga ono demona Dockera, którego nie ma na każdej maszynie budującej.
+   Bez tych usług testy są pomijane, a build przechodzi. Patrz [TESTING.md](TESTING.md).
 
 ## Etap 2: Baza danych (MariaDB 10.11+)
 
@@ -80,7 +82,10 @@ database:
 - Osobny użytkownik MariaDB na endpoint, przypięty do hosta: `'auth_proxy'@'<IP proxy>' REQUIRE SSL`,
   `'auth_backend'@'10.0.0.%'`.
 - Łącze publiczne: TLS obowiązkowy, `keepaliveTime` Hikari dostrojony pod opóźnienia WAN.
-- Endpointy zapasowe przez tryb `sequential` MariaDB Connector/J.
+- Endpointy zapasowe (`fallback`) realizuje aplikacja, nie sterownik: tryb `sequential` sterownika zakłada jednego użytkownika i
+  hasło dla wszystkich hostów, a nasze dwa endpointy mają **różnych** użytkowników. Wybór następuje raz, przy starcie
+  (`Database.connect`); powrót do `use` po naprawie sieci wymaga restartu. Redis (`RedisBus`) przełącza się w locie i sam wraca
+  do głównego endpointu, gdy ten znów odpowiada.
 - **Redis dostaje identyczny podział `public` / `private`** — proxy jest na zewnątrz, więc jego połączenie
   z Redisem też idzie przez sieć publiczną: TLS + ACL per rola.
 
@@ -90,18 +95,21 @@ Migracje wersjonowane przez `Migrator`; tylko celowane `UPDATE`, bez `REPLACE IN
 
 | Tabela | Najważniejsze kolumny |
 |---|---|
-| `auth_accounts` | `id` BIGINT PK; `uuid` UUID UNIQUE (stały UUID w grze); `username`; `username_lower` UNIQUE; `premium` BOOL; `premium_uuid` UUID UNIQUE NULL; `password_hash`, `hash_algo`; `registered_at`, `registered_ip` INET6; `last_login_at`, `last_login_ip` INET6 (indeks); `version` INT (blokowanie optymistyczne) |
+| `auth_accounts` | `id` BIGINT PK; `uuid` UUID UNIQUE (stały UUID w grze); `username`; `username_lower` (kolumna generowana) UNIQUE; `premium` BOOL; `premium_uuid` UUID UNIQUE NULL; `password_hash`, `password_salt` (sól importowana z mineLogin), `hash_algo`; `registered_at`, `registered_ip` INET6; `last_login_at`, `last_login_ip` INET6 (indeks); `version` INT (blokowanie optymistyczne) |
 | `auth_sessions` | `account_id` PK/FK, `ip` INET6, `expires_at` — automatyczne logowanie non-premium z tego samego IP |
 | `auth_presence` | `uuid` PK, `account_id`, `state`, `method` (PREMIUM/PASSWORD/SESSION/FORCED), `epoch`, `proxy_id`, `updated_at` — trwały stan „kto jest zalogowany”, fallback dla Papera bez Redisa |
 | `auth_ip_blocks` | `ip` PK, `until`, `reason` |
 | `auth_premium_cache` | `username_lower` PK, `premium_uuid` NULL, `checked_at` — cache odpowiedzi Mojanga z TTL |
 | `auth_audit` (opcjonalnie) | logowania, błędne hasła, akcje adminów; z okresem przechowywania |
 
-- **Hashowanie:** nowe hasła Argon2id (lub BCrypt — wybór w configu). Weryfikacja starych hashy z mineLogin
-  (domyślnie BCRYPT; dodatkowe typy tylko te, które faktycznie są w bazie). Po udanym logowaniu rehash na
-  nowy algorytm.
+- **Hashowanie:** nowe hasła domyślnie BCrypt (opcjonalnie Argon2id w configu) — dzięki temu przy awaryjnym rollbacku do
+  mineLogin nowe konta nie zostaną zablokowane. Weryfikacja starych hashy z mineLogin: BCRYPT, SHA256 i ARGON2. mineLogin trzyma
+  hash i sól w osobnych kolumnach (sól jest doklejana do hasła przed hashowaniem), dlatego schemat ma `password_salt`. Po udanym
+  logowaniu rehash na nowy algorytm.
 - **Import z mineLogin:** `/authadmin migrate minelogin` — odczyt tabeli `mineLogin` tylko do odczytu,
-  mapowanie `paid` → `premium`, hashe, IP, czasy; tryb dry-run z raportem; idempotentny.
+  mapowanie `paid` → `premium` (`premium_uuid` = `uuid`), hashe i sól, IP, czasy (w mineLogin są to milisekundy w typie `LONG`);
+  tryb dry-run z raportem; idempotentny. Adresy IP mogą być zahashowane (opcja `address-hashing` w mineLogin) — wtedy nie da się ich
+  odzyskać i kolumny zostają puste. Importer powstanie razem z logiką logowania (etap 3).
 
 ## Etap 3: Velocity (proxy = jedyne źródło decyzji)
 
@@ -209,13 +217,54 @@ opakowana w Foundation.
 
 ---
 
-## Otwarte decyzje
+## Decyzje (zatwierdzone)
 
-1. 2FA (TOTP z mapami QR) i captcha w v1? Propozycja: v2.
-2. Geyser / Floodgate — czy są gracze Bedrock?
-3. Polityka nicków premium: `PROTECT` czy `ALLOW_CLAIM_AUTO`?
-4. Osobny serwer logowania (limbo) czy lobby jako serwer logowania?
-5. Migracja danych z mineLogin — tak/nie, jakie typy hashy są w bazie?
-6. Kod wspólny z JustBans: kopia czy wydzielona biblioteka?
-7. Baza na Paperze: warstwa z `common` (rekomendacja) czy Foundation `SimpleDatabase`?
-8. Potwierdzenie listy do wycięcia z sekcji 0.2.
+1. **2FA (TOTP z mapami QR) i captcha:** odłożone do v2. W v1 liczy się stabilność podstawowego logowania.
+2. **Geyser / Floodgate:** brak obsługi graczy Bedrock w v1.
+3. **Polityka nicków premium:** domyślnie `PROTECT`, z możliwością zmiany w configu na `ALLOW_CLAIM_AUTO`.
+4. **Serwer logowania:** rola serwera Paper (`AUTH` lub `GAME`) w configu. Domyślnie dedykowany serwer `AUTH` (poczekalnia), z którego
+   po zalogowaniu gracz trafia na `GAME`. Blokada zdarzeń na `AUTH` musi być w 100% szczelna.
+5. **Migracja z mineLogin:** tak. Hashe: BCRYPT oraz SHA256 / ARGON2. Nowe hasła: BCrypt (opcjonalnie Argon2id).
+6. **Kod wspólny z JustBans:** kopia klas do `authenticator-common`, pakiet `pl.kingdomcraft.authenticator`. Bez wspólnej biblioteki.
+7. **Baza na Paperze:** warstwa z `authenticator-common` (HikariCP), bez `SimpleDatabase` z Foundation.
+8. **Wycinane:** panel webowy, NATS, Mongo, YAML, MaxMind, importy inne niż mineLogin, MOTD, ping, skiny, welcome picture. Zostaje lekki
+   `auth_audit` (logowania, błędne hasła, akcje adminów).
+
+---
+
+## Status realizacji
+
+### Etapy 1 i 2 — zrobione w `authenticator-common`
+
+* Trzy moduły Maven (`common`, `velocity`, `paper`), Java 25, pakiet `pl.kingdomcraft.authenticator`, Paper 26.2, Foundation 6.10.2.
+* Baza: HikariCP + MariaDB, endpointy `public` i `private`, `use` i `fallback`, TLS (`ssl-mode`), migracje (`Migrator.migrate` dla
+  proxy, `Migrator.verify` dla serwerów Paper). Schemat: 6 tabel w 4 migracjach. Opis i uprawnienia kont: [DATABASE.md](DATABASE.md).
+* Redis: Jedis, `Envelope` + HMAC-SHA256, endpointy `public` i `private` z fallbackiem i powrotem do głównego, TLS z weryfikacją
+  nazwy hosta i własnym trust store, odrzucanie podróbek, starych i powtórzonych wiadomości. Klucze z TTL i blokada `tryLock`.
+* Wspólny parser konfiguracji (`ConfigSection`) dla obu platform; klucze w stylu Velocity (`pool-size`) i Foundation (`Pool_Size`).
+* 132 testy; sprawdzone na prawdziwej MariaDB 10.11 (także z TLS) i Redisie 7 (także z TLS). Testy bezpieczeństwa zostały
+  zmutowane, patrz [TESTING.md](TESTING.md).
+
+### Odstępstwa od pierwotnego planu i dlaczego
+
+* **Fallback bazy w aplikacji, nie przez `sequential`** — patrz Etap 2.
+* **Czas zawsze przez `LocalDateTime` w UTC (`Sql.setInstant` / `Sql.instant`).** Test na JVM-ie ustawionym na `Pacific/Auckland`
+  pokazał, że `setTimestamp` i `setObject(Instant)` zapisują czas strefy JVM-a mimo `connectionTimeZone=UTC`. Ten sam błąd
+  siedzi w kodzie JustBans, z którego kopiowaliśmy (tam ukryty, bo serwery chodzą w UTC).
+* **IPv4 w `INET6` jako `::ffff:a.b.c.d`** — MariaDB odrzuca zwykły tekst IPv4 w tej kolumnie (sprawdzone).
+* **`password_salt` w `auth_accounts`** — potrzebne do hashy z mineLogin.
+* **Kolumny „do kiedy” jako `DATETIME(3)`** zamiast `TIMESTAMP`, żeby bezterminowe blokady nie wpadły w rok 2038.
+* **Bez Testcontainers** — patrz Etap 1.
+* **Opcjonalny `ssl-trust-store` dla Redisa** (certyfikat z własnego CA); po stronie bazy robi to sterownik przez `properties`.
+
+### Czego jeszcze nie zweryfikowano
+
+* **Moduły `velocity` i `paper` nie zostały skompilowane.** Środowisko, w którym pracowałem, blokuje `repo.papermc.io` i `jitpack.io`
+  (polityka sieci), a stamtąd pochodzą Velocity API, Paper API i Foundation. Szkielety klas i pomy są wzorowane na działających
+  modułach JustBans, ale `mvn clean compile` dla całego projektu trzeba uruchomić na maszynie z dostępem do tych repozytoriów.
+  `mvn -pl authenticator-common -am clean compile` przechodzi.
+
+### Dalej
+
+Etap 3 (Velocity: wejście, premium, przekazywanie danych), etap 4 (Paper: Foundation, blokada zdarzeń, bridge), etap 5 (testy
+i wdrożenie). Importer z mineLogin powstanie razem z logiką haseł w etapie 3.
