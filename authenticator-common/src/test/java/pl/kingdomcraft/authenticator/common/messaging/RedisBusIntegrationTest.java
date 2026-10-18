@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -90,15 +91,20 @@ class RedisBusIntegrationTest {
 		if (privateEndpoint != null)
 			endpoints.put(Zone.PRIVATE, privateEndpoint);
 
-		return new RedisConfig(new ZonedEndpoints<>(use, fallback, endpoints), prefix, SECRET, 30);
+		return new RedisConfig(new ZonedEndpoints<>(use, fallback, endpoints), prefix);
 	}
 
 	private static RedisConfig plainConfig(String prefix) {
 		return config(prefix, Zone.PRIVATE, List.of(), null, plain(redis.port()));
 	}
 
+	/** Every node has a verifier of its own: it remembers the messages that node has seen. */
+	private static EnvelopeVerifier verifier() {
+		return new EnvelopeVerifier(new HmacSigner(SECRET), Duration.ofSeconds(30), Clock.systemUTC(), LOGGER);
+	}
+
 	private RedisBus start(RedisConfig config, String node) {
-		final RedisBus bus = new RedisBus(config, node, Clock.systemUTC(), LOGGER, 200);
+		final RedisBus bus = new RedisBus(config, verifier(), node, Clock.systemUTC(), LOGGER, 200);
 
 		this.buses.add(bus);
 		bus.start();
@@ -424,7 +430,7 @@ class RedisBusIntegrationTest {
 	void anUnreadableTrustStoreFailsAtStartupWithAClearMessage() {
 		final RedisEndpoint broken = new RedisEndpoint("localhost", 6380, "", "", true, true, "/nonexistent/trust.p12", "x", 0, 1_000);
 
-		final IllegalStateException ex = assertThrows(IllegalStateException.class, () -> new RedisBus(config(newPrefix(), Zone.PUBLIC, List.of(), broken, null), "velocity-1", Clock.systemUTC(), LOGGER));
+		final IllegalStateException ex = assertThrows(IllegalStateException.class, () -> new RedisBus(config(newPrefix(), Zone.PUBLIC, List.of(), broken, null), verifier(), "velocity-1", Clock.systemUTC(), LOGGER));
 
 		assertTrue(ex.getMessage().contains("/nonexistent/trust.p12"), ex.getMessage());
 	}
@@ -460,7 +466,7 @@ class RedisBusIntegrationTest {
 		this.servers.add(own);
 
 		final List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
-		final RedisBus bus = new RedisBus(config(newPrefix(), Zone.PRIVATE, List.of(), null, plain(own.port())), "velocity-1", Clock.systemUTC(), LOGGER, 200);
+		final RedisBus bus = new RedisBus(config(newPrefix(), Zone.PRIVATE, List.of(), null, plain(own.port())), verifier(), "velocity-1", Clock.systemUTC(), LOGGER, 200);
 
 		this.buses.add(bus);
 		bus.addConnectionListener(new RedisBus.ConnectionListener() {

@@ -159,6 +159,10 @@
                             <shadedPattern>${shade.prefix}.geantyref</shadedPattern>
                         </relocation>
                         <relocation>
+                            <pattern>com.password4j</pattern>
+                            <shadedPattern>${shade.prefix}.password4j</shadedPattern>
+                        </relocation>
+                        <relocation>
                             <pattern>com.google.gson</pattern>
                             <shadedPattern>${shade.prefix}.gson</shadedPattern>
                         </relocation>

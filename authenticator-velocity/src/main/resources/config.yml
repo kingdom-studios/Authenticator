@@ -3,6 +3,9 @@
 # Unique id of this node in bridge messages and in the node list. Must differ from every Paper server's node id.
 node-id: velocity-1
 
+# Language of the built-in messages: pl or en. Any single text can be replaced under "messages" at the end of this file.
+language: pl
+
 # The shared MariaDB database (10.11 or newer).
 #
 # The proxy sits outside the infrastructure and reaches the database on its public address; the Paper
@@ -41,15 +44,39 @@ database:
       ssl-mode: disable
       properties: {}
 
-# The shared Redis that carries messages between the proxy and the servers. The database stays the source
-# of truth: if Redis is down, players are still checked against the database, just a little later.
+# How the proxy and the backend servers tell each other about a player's login state. In every mode the database
+# (table auth_presence) is the source of truth, and a backend server checks it whenever a player joins; a message
+# only makes a change visible sooner.
+#
+#   plugin-messaging - DEFAULT. Signed messages through the player's own connection, on the channel
+#                      authenticator:bridge. Needs nothing besides the proxy-server link: no extra service, nothing
+#                      more exposed to the internet. A server without players cannot be reached, which is fine:
+#                      it reads the database when the next player joins.
+#   redis            - Signed messages through Redis (see the redis section). Also reaches empty servers.
+#   database-only    - No messages at all; servers read the database. Needs no secret.
+#
+# Every message is signed with the secret (HMAC-SHA256) and carries a time and a one-time id, so a copied or
+# forged message is refused even if it reaches a server by some other way. Messages that a player's client
+# sends on the bridge channel are dropped without being read.
+#
+#   secret                - REQUIRED unless mode is database-only. At least 16 characters, identical on the proxy and
+#                           on every server. Keep it private.
+#   max-skew-seconds      - messages whose time differs from this machine's clock by more than this are dropped,
+#                           so keep the clocks of all machines synchronized (NTP).
+#   database-poll-seconds - how often the proxy looks in the database for changes made behind its back (for example an
+#                           admin changing an account on a backend server); 0 turns it off.
+bridge:
+  mode: plugin-messaging
+  secret: ""
+  max-skew-seconds: 30
+  database-poll-seconds: 5
+
+# Redis is OPTIONAL. It is only used when bridge.mode is "redis"; otherwise this whole section is ignored.
+# It makes the proxy reach backend servers that have no player online, at the price of exposing one more service
+# to the internet (the proxy sits outside the private network). The database stays the source of truth either way.
 #
 # "use", "fallback" and the two endpoints work like in "database". The public endpoint must have ssl: true.
 #
-#   secret            - REQUIRED, at least 16 characters, identical on the proxy and on every server.
-#                       Every message is signed with it; anything else is ignored.
-#   max-skew-seconds  - messages whose time differs from this machine's clock by more than this are
-#                       dropped, so keep the clocks of all machines synchronized (NTP).
 #   verify-hostname   - with ssl, check that the certificate is valid for "host".
 #   ssl-trust-store   - PKCS12 (or .jks) file with the certificates to trust, for a server whose
 #                       certificate comes from your own CA. Empty: trust what Java trusts.
@@ -57,8 +84,6 @@ redis:
   use: public
   fallback: []
   prefix: "authenticator:"
-  secret: ""
-  max-skew-seconds: 30
   endpoints:
     public:
       host: redis.example.com
@@ -79,3 +104,92 @@ redis:
       ssl: false
       database: 0
       connect-timeout-ms: 5000
+
+# Shadow mode (dry run): the plugin decides, for every connection, whether the player is premium or must log in,
+# and writes down whether another login plugin (for example mineLogin, running side by side) decided the same.
+# It never changes a connection, a UUID or a server, registers no commands and kicks nobody. Import the accounts
+# first (/authadmin migrate minelogin) so both plugins know the same players. See /authadmin status.
+# Set bridge.mode to database-only while this is on: shadow mode sends no messages, so it needs no secret. docs/PROXY.md.
+dry-run: false
+
+login:
+  # Seconds a player has to log in or register before being kicked.
+  timeout-seconds: 60
+  # Wrong passwords in one visit before the player is kicked.
+  max-attempts: 3
+  # Minutes a non-premium player may return from the same IP address without typing the password. 0 turns it off.
+  session-minutes: 4320
+  # Names that may connect at all.
+  nickname-regex: "^[a-zA-Z0-9_]{3,16}$"
+
+# Server names as in velocity.toml. The one with the fewest players is used.
+routing:
+  # Where players wait until they are authenticated. Nothing else is reachable for them.
+  auth-servers: [auth]
+  # Where they go once they are.
+  lobby-servers: [lobby]
+
+premium:
+  # What happens to a new name that is also an original Minecraft name.
+  #   PROTECT           - original names are protected: the player must prove through Mojang that the account is
+  #                       theirs. A cracked client can never take such a name. (safe default)
+  #   ALLOW_CLAIM_AUTO  - original names are not protected: a player with a cracked client gets in as a non-premium
+  #                       player (after one failed attempt), and the real owner keeps playing as before.
+  policy: PROTECT
+  # Services that say whether a name is an original account, asked in this order until one answers.
+  apis: [mojang, ashcon, minetools]
+  timeout-ms: 3000
+  # How long an answer is remembered in memory, and how long "no service answered" is (short, so they are tried again).
+  memory-seconds: 600
+  unknown-seconds: 15
+  # How long an answer stored in the database is trusted. An old answer is still used while every service is down.
+  positive-hours: 24
+  negative-hours: 1
+  # ALLOW_CLAIM_AUTO only: how long a failed online attempt makes the next connection offline.
+  claim-seconds: 60
+
+limits:
+  # Connections one IP address may open in the window; more are refused before anything else happens.
+  connections-per-ip: 5
+  connections-window-seconds: 10
+  # Accounts one IP address may register in the window. 0 for no limit.
+  accounts-per-ip: 3
+  accounts-window-hours: 168
+  # Wrong passwords from one IP address in the window before the address is blocked.
+  attempts-per-ip: 8
+  attempts-window-seconds: 300
+  ip-block-minutes: 30
+
+passwords:
+  # Algorithm for NEW passwords. Passwords imported from mineLogin (BCrypt, SHA-256, SHA-512, Argon2) keep working and
+  # are replaced at the player's next login. bcrypt is understood by mineLogin too, so rolling back never locks anyone out.
+  algorithm: bcrypt
+  bcrypt-cost: 12
+  argon2:
+    memory-kib: 19456
+    iterations: 2
+    parallelism: 1
+  min-length: 6
+  # Passwords that are refused whatever their length (compared ignoring case).
+  forbidden: [123456, 12345678, password, qwerty, 111111, abc123, letmein]
+  # Threads that hash passwords, and how many more hashes may wait. When the queue is full the player is asked to try again.
+  threads: 2
+  queue-size: 64
+
+audit:
+  # Days audit entries (logins, wrong passwords, admin actions) are kept. 0 keeps them for ever.
+  retention-days: 90
+
+migration:
+  # Where /authadmin migrate minelogin reads accounts from. It only reads.
+  minelogin:
+    # The database holding the mineLogin table; empty means the one Authenticator uses.
+    schema: ""
+    table: mineLogin
+
+# Texts that replace the built-in ones (MiniMessage; tags like <attempts> are filled in). The keys are listed in
+# docs/MESSAGES.md; a key that does not exist stops the plugin from starting, so a typo is noticed at once. Example:
+#
+#   messages:
+#     login.ok: "<green>Welcome back!"
+messages: {}

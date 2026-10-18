@@ -134,18 +134,27 @@ Migracje wersjonowane przez `Migrator`; tylko celowane `UPDATE`, bez `REPLACE IN
    - `PlayerChooseInitialServerEvent`: niezalogowani → pula serwerów logowania (najmniej graczy),
      zalogowani → lobby / forced host.
    - `ServerPreConnectEvent`: niezalogowany nie wejdzie na serwer spoza puli logowania.
-5. **Komendy logowania na proxy** (`BrigadierCommand`): `/register`, `/login`, `/changepassword`,
-   `/unregister`, `/premium` (z potwierdzeniem), `/cracked`.
-   - Hasło nigdy nie trafia na Paper ani do jego logów.
-   - Hashowanie na osobnej, ograniczonej puli wątków.
+5. **Komendy logowania na proxy** (`SimpleCommand`, bez Brigadiera: argument `word()` psuł hasła ze znakami specjalnymi):
+   `/register`, `/login`, `/changepassword`, `/unregister`, `/premium` (z potwierdzeniem), `/cracked`.
+   - Hasło nigdy nie trafia na Paper ani do jego logów. W `velocity.toml` `log-command-executions` musi być `false`.
+   - Hashowanie na osobnej, ograniczonej puli wątków; pełna kolejka to „spróbuj za chwilę”, nie zawieszony login.
    - Limit prób per IP i per konto, czasowa blokada IP.
    - Czatu i komend z podpisem **nie blokujemy na proxy** — robi to Paper (błąd #6).
-6. **Po udanym logowaniu:** zapis `auth_presence` (DB) → klucz `auth:state:<uuid>` w Redisie → publikacja
-   `AUTH_STATE`. Opcjonalnie przeniesienie do lobby.
-7. Scheduler wyrzuca po przekroczeniu czasu na logowanie. `DisconnectEvent`: sprzątanie stanu + `LOGGED_OUT`.
-8. Dodatkowe zabezpieczenie: proxy odrzuca wiadomości PMC od klientów w naszej przestrzeni nazw.
+6. **Po każdej zmianie stanu gracza:** zapis `auth_presence` (DB, z rosnącym `epoch`) → wiadomość `AUTH_STATE` do serwera, na którym
+   gracz jest (patrz „Bridge” w etapie 4) → przeniesienie na właściwy serwer (zalogowany z poczekalni do lobby, wylogowany do poczekalni).
+7. Scheduler (co sekundę) wyrzuca po przekroczeniu czasu na logowanie, przypomina o logowaniu co 10 s i sprząta sesje połączeń, po których
+   nie przyszedł `DisconnectEvent`. `DisconnectEvent`: zamknięcie sesji i usunięcie wiersza `auth_presence`.
+8. Dodatkowe zabezpieczenie: proxy nie przekazuje i nie czyta wiadomości PMC od klientów w naszej przestrzeni nazw (patrz „Bridge”).
 9. `velocity.toml`: `online-mode=true`, `player-info-forwarding-mode=modern` z sekretem. Porty Paperów
    otwarte w firewallu tylko dla IP proxy — inaczej da się wejść na backend z pominięciem proxy.
+10. **Zmiany względem pierwotnego opisu** (z powodów w sekcji „Odstępstwa”):
+    - sesja otwiera się w `LoginEvent` (`PostOrder.LATE`), nie w `PostLoginEvent`: można odmówić wejścia, zanim gracz w ogóle trafi na serwer,
+      a login odrzucony wcześniej przez inny plugin (np. ban) nie dostaje sesji;
+    - decyzja online/offline zapada w `PreLoginEvent` na `PostOrder.LAST`, UUID w `GameProfileRequestEvent` też `LAST` (zmieniamy tylko UUID,
+      skiny dodane przez inne pluginy zostają);
+    - routing jest wymuszany w `ServerPreConnectEvent` (`LAST`), a nie tylko przy wyborze pierwszego serwera, więc żadna droga na serwer
+      (komenda, inny plugin, forced host) nie omija poczekalni;
+    - teksty dla graczy: katalogi `pl` i `en` + nadpisania w configu ([MESSAGES.md](MESSAGES.md)).
 
 ## Etap 4: Paper (wyłącznie Foundation) i bridge
 
@@ -178,26 +187,54 @@ opakowana w Foundation.
   - opcjonalnie ukrywanie niezalogowanych graczy.
 - Stan w `ConcurrentHashMap<UUID, …>`; wszystko po UUID.
 
-### Bridge (Redis, protokół v1)
+### Bridge: trzy tryby, jeden podpisany protokół (v1)
 
-- Koperta JSON podpisana HMAC-SHA256: `type`, `node`, `ts`, `nonce`, `protocol`. Odrzucane: zbyt duży rozjazd
-  zegara, powtórzenia (replay), zła wersja protokołu.
-- Proxy → Paper: `AUTH_STATE {uuid, state, method, epoch}`, `LOGGED_OUT`, `ACCOUNT_UPDATED`.
-- Paper → proxy: `ACCOUNT_CHANGED` po akcji admina (proxy np. wyrzuca gracza albo wymusza logowanie).
-- Brak wyścigów:
-  - proxy najpierw zapisuje DB i klucz w Redisie, potem publikuje;
-  - Paper najpierw subskrybuje, potem czyta klucz;
-  - `epoch` odrzuca stare wiadomości; obsługa idempotentna.
-- Klucze `auth:node:<id>` z TTL zastępują Hello / VersionMismatch i zasilają `/authadmin status`.
-- Awaria Redisa: proxy loguje dalej przez DB; Paper co 2 s sprawdza `auth_presence` dla zamrożonych graczy.
-  Po powrocie Redisa wszystko wraca samo.
+Proxy stoi **poza** siecią prywatną, więc Redis nie jest wymagany (kolejna usługa wystawiona do internetu). `bridge.mode` w configu proxy
+i Papera:
+
+| Tryb | Co to jest | Kiedy |
+|---|---|---|
+| `plugin-messaging` (**domyślny**) | Ta sama podpisana koperta w plugin message na kanale `authenticator:bridge`, przez połączenie gracza, którego dotyczy zmiana. | Zwykła sieć; zero dodatkowych usług. |
+| `redis` | Ta sama koperta przez Redis (dociera też do serwerów bez graczy). | Gdy Redis już jest i chcesz natychmiastowości także dla pustych serwerów. |
+| `database-only` | Bez wiadomości; Paper czyta `auth_presence`. | Najprostszy układ; też tryb shadow. |
+
+Wspólne zasady (kod: `BridgeTransport`, `PluginMessagingTransport`, `RedisTransport`, `NullTransport`, `EnvelopeVerifier`):
+
+1. **Baza jest źródłem prawdy, wiadomość tylko przyspiesza.** Wiadomość może zginąć (serwer pusty, gracz w trakcie zmiany serwera, restart),
+   więc nic od niej nie zależy: proxy zapisuje stan w `auth_presence` *zanim* go ogłosi, a Paper przy każdym wejściu gracza
+   (`AsyncPlayerPreLoginEvent` / `PlayerJoinEvent`) sprawdza stan w lokalnym cache, a gdy go nie ma — w `auth_presence`. PMC służy tylko do
+   natychmiastowego (0 ticków) powiadomienia serwera, na którym gracz właśnie jest.
+2. **Koperta podpisana HMAC-SHA256:** napis do podpisu `authenticator|v|id|type|ts|node|canonical(payload)`; `id` to jednorazowy nonce,
+   odrzucane są: zły podpis, zbyt duży rozjazd zegara (`max-skew-seconds`), powtórzenie tego samego `id` (replay), wiadomość > 16 KiB,
+   zła wersja. Ta sama weryfikacja dla Redisa i PMC.
+3. **Niezależnie od HMAC proxy sprawdza źródło wiadomości.** Kanał jest zarejestrowany, więc Velocity zgłasza każdą wiadomość na nim w
+   `PluginMessageEvent`. Źródło `ServerConnection` to zaufany serwer; źródło `Player` (klient) — wiadomość jest odrzucana **przed
+   parsowaniem** (`ForwardResult.handled()`, więc nie trafia też dalej do serwera). Naprawia to lukę #1 z mineLogin.
+4. **Kierunki:** proxy → serwer: `AUTH_STATE {uuid, state, method, epoch}`; serwer → proxy: `ACCOUNT_CHANGED {uuid, change}`. Proxy nie
+   reaguje na treść `ACCOUNT_CHANGED`: to tylko „spójrz na tego gracza teraz”, a co się zmieniło, czyta z bazy. Sfałszowana wiadomość
+   może więc co najwyżej wywołać jedno odczytanie wiersza.
+5. **`AUTH_STATE` idzie przez połączenie gracza, którego stan się zmienił** (po `/login` i `/register`, po wejściu na serwer), nie „do
+   serwera X”: PMC nie ma adresata innego niż gracz.
+6. **Zdarzenia admina z Paperów** (gracz może być na innym serwerze, serwer może być pusty, gracz może zmieniać serwer) idą przez bazę:
+   - zmiana/usunięcie konta: `UPDATE`/`DELETE` w `auth_accounts` (każda zmiana podbija `version`);
+   - wymuszone logowanie/wylogowanie: wiersz w `auth_presence` ze `state` `AUTHENTICATED`/`method` `FORCED` (albo `PENDING_*`),
+     własnym `proxy_id` (= `node-id` Papera, **musi być inny niż węzła proxy**) i `epoch` + 1;
+   - proxy co `database-poll-seconds` (domyślnie 5 s, `StateWatcher`) porównuje `versions` kont i wiersze `auth_presence` swoich graczy
+     i reaguje: usunięte konto → gracz wraca do rejestracji i na serwer logowania; zmiana typu konta → gracz jest wyrzucany z prośbą o
+     ponowne wejście; wymuszony login/logout → stosowany. Z obcego węzła przyjmowany jest **tylko** wymuszony login i wylogowanie
+     (nikt inny nie ma powodu twierdzić, że hasło zostało wpisane); wiersz starszy niż ostatni zapis proxy jest ignorowany;
+   - `ACCOUNT_CHANGED` (PMC lub Redis) skraca to opóźnienie do zera: proxy sprawdza od razu tego jednego gracza.
+7. **Awaria** każdego transportu nie zatrzymuje logowania: stan i tak jest w bazie, Paper co 2 s sprawdza `auth_presence` dla
+   zamrożonych graczy. Po powrocie Redisa wszystko wraca samo.
+8. Redis dodatkowo: klucze z TTL i blokada (`put`/`get`/`tryLock`), endpointy `public`/`private` z fallbackiem i powrotem do głównego,
+   TLS z weryfikacją nazwy hosta.
 
 ## Etap 5: Testy i bezpieczne wdrożenie
 
 1. **Jednostkowe:** zgodność hashy z mineLogin i rehash; tabela decyzji `PremiumResolver`; maszyna stanów;
    walidacja nicków; podpis i replay koperty; wybór endpointu `public` / `private` i fallbacków.
-2. **Integracyjne (Testcontainers):** repozytoria, migracje, import z dumpa tabeli `mineLogin`, bridge na
-   prawdziwym Redisie.
+2. **Integracyjne (prawdziwa MariaDB i Redis, patrz [TESTING.md](TESTING.md)):** repozytoria, migracje, import z tabeli `mineLogin`,
+   cały przebieg logowania (`AuthService`, `ProxyCore`), bridge na prawdziwym Redisie.
 3. **Staging (docker-compose):** Velocity + Paper `AUTH` + Paper `GAME`. Scenariusze:
    - premium: nowy, istniejący, zmiana nicku;
    - non-premium: rejestracja, logowanie, złe hasło, timeout, sesja IP;
@@ -242,8 +279,29 @@ opakowana w Foundation.
 * Redis: Jedis, `Envelope` + HMAC-SHA256, endpointy `public` i `private` z fallbackiem i powrotem do głównego, TLS z weryfikacją
   nazwy hosta i własnym trust store, odrzucanie podróbek, starych i powtórzonych wiadomości. Klucze z TTL i blokada `tryLock`.
 * Wspólny parser konfiguracji (`ConfigSection`) dla obu platform; klucze w stylu Velocity (`pool-size`) i Foundation (`Pool_Size`).
-* 132 testy; sprawdzone na prawdziwej MariaDB 10.11 (także z TLS) i Redisie 7 (także z TLS). Testy bezpieczeństwa zostały
-  zmutowane, patrz [TESTING.md](TESTING.md).
+
+### Etap 3 — zrobiony (logika w `authenticator-common`, adapter w `authenticator-velocity`)
+
+Cała logika, która nie potrzebuje Velocity, jest w `common` i testowana na prawdziwej MariaDB i Redisie; moduł Velocity jest cienką
+nakładką (zdarzenia, komendy, połączenia).
+
+* **Transport bridge** (`BridgeTransport`): `plugin-messaging` (domyślny), `redis` (opcjonalny, sprawdzony `RedisBus`), `database-only`.
+  Ta sama podpisana koperta, wspólna weryfikacja (`EnvelopeVerifier`), odrzucanie wiadomości od klientów przed parsowaniem. Szczegóły
+  w Etapie 4 → „Bridge”.
+* **Decyzja o połączeniu** (`PreLoginDecider`): limit połączeń per IP, nick, blokada IP, nick już online, konto, a dla nowego nicku
+  `PremiumResolver` (pamięć → baza → Mojang/Ashcon/MineTools, nieznany nick = odmowa). `PROTECT` i `ALLOW_CLAIM_AUTO`.
+* **Logowanie** (`AuthService`): sesja jako maszyna stanów, `/register`, `/login`, `/changepassword`, `/unregister`, `/premium`,
+  `/cracked` (dwa kroki), limity per IP, blokada IP, hashowanie na osobnej ograniczonej puli (`BUSY` zamiast zawieszenia), BCrypt
+  (domyślnie) lub Argon2id, weryfikacja haseł z mineLogin (BCrypt, SHA-256, SHA-512, Argon2; `password_salt`) i podmiana hasha przy
+  najbliższym logowaniu, sesja IP, stały UUID konta.
+* **Zmiany za plecami proxy** (`StateWatcher`): konto usunięte, zmienione, wymuszony login/logout, zgubiony wiersz `auth_presence`.
+* **Sprzątanie** (`Maintenance`), **import z mineLogin** (`MineLoginImporter`, `/authadmin migrate minelogin [dry-run]`),
+  **tryb shadow** (`ShadowComparator`, `dry-run: true`), **teksty** (`Messages`: `pl` i `en`, [MESSAGES.md](MESSAGES.md)),
+  **routing** (`RoutingPolicy`), **składanie całości** (`ProxyCore`). Opis dla admina: [PROXY.md](PROXY.md).
+* **Adapter Velocity:** `LoginListener`, `ShadowListener`, `RoutingListener`, `VelocityPluginMessaging`, `PlayerCommand`, `AdminCommand`,
+  `VelocityRuntime`.
+* Testy: patrz [TESTING.md](TESTING.md). Mutowane (wyłączane po kolei, za każdym razem wywala się właściwy test): źródło wiadomości PMC,
+  reguły `StateWatcher` (co wolno obcemu węzłowi), routing poczekalni, obietnice trybu shadow, odrzucanie nieznanych kluczy tekstów.
 
 ### Odstępstwa od pierwotnego planu i dlaczego
 
@@ -256,15 +314,54 @@ opakowana w Foundation.
 * **Kolumny „do kiedy” jako `DATETIME(3)`** zamiast `TIMESTAMP`, żeby bezterminowe blokady nie wpadły w rok 2038.
 * **Bez Testcontainers** — patrz Etap 1.
 * **Opcjonalny `ssl-trust-store` dla Redisa** (certyfikat z własnego CA); po stronie bazy robi to sterownik przez `properties`.
+* **Redis opcjonalny, domyślnie PluginMessaging + baza** (decyzja po zatwierdzeniu planu): proxy jest poza siecią prywatną, więc nie
+  wymuszamy kolejnej usługi przez WAN. Nic w logice nie zależy od dostarczenia wiadomości.
+* **Sesja w `LoginEvent`, nie w `PostLoginEvent`** i **`SimpleCommand` zamiast Brigadiera** — patrz Etap 3, punkt 10 i 5.
+* **Kolejność wierszy importu zależy od czasu rejestracji**, nie od kolejności skanowania tabeli: przy dwóch nickach różniących się
+  tylko wielkością liter (możliwe w mineLogin przy rozróżniającym wielkość collation) nick zachowuje ten, kto zarejestrował się pierwszy,
+  a próba na sucho i prawdziwy import nie mogą się rozjechać.
+* **Przypomnienia o logowaniu co 10 s i język komunikatów (`language: pl|en`)** — nie były w planie; tanie, a bez nich gracz na poczekalni
+  nie wie, co ma wpisać.
 
 ### Czego jeszcze nie zweryfikowano
 
-* **Moduły `velocity` i `paper` nie zostały skompilowane.** Środowisko, w którym pracowałem, blokuje `repo.papermc.io` i `jitpack.io`
-  (polityka sieci), a stamtąd pochodzą Velocity API, Paper API i Foundation. Szkielety klas i pomy są wzorowane na działających
-  modułach JustBans, ale `mvn clean compile` dla całego projektu trzeba uruchomić na maszynie z dostępem do tych repozytoriów.
-  `mvn -pl authenticator-common -am clean compile` przechodzi.
+* **Moduły `velocity` i `paper` nie zostały skompilowane z prawdziwym API.** Środowisko tej sesji nadal blokuje `repo.papermc.io` i
+  `jitpack.io` (odmowa polityki sieci przy `CONNECT`, także po zmianie ustawień środowiska, którą widać dopiero w nowej sesji).
+  `mvn clean compile` na całym reaktorze zatrzymuje się na `velocity-api`; `authenticator-common` kompiluje się i przechodzi testy.
+* **Adapter Velocity był sprawdzony tylko na modelu API.** [`tools/velocity-simulation`](../tools/velocity-simulation) kompiluje go z
+  ręcznie napisanymi stubami (`-Xlint:all` czysto) i przeprowadza przez całe sesje na prawdziwej bazie. To dowodzi spójności adaptera,
+  nie zgodności stubów z prawdziwym API. Wywołania użyte także w JustBans (a więc sprawdzone kompilatorem): `@Plugin`, `@DataDirectory`,
+  `@Subscribe(order)`, `EventTask.async`, `LoginEvent`, `ComponentResult.denied`, `PlayerChooseInitialServerEvent`,
+  `ServerPreConnectEvent` i `ServerResult`, `DisconnectEvent`, `ServerPostConnectEvent#getPlayer`, `SimpleCommand`, `metaBuilder`,
+  `Scheduler#buildTask(...).schedule()`, `Player#getCurrentServer/disconnect/sendMessage`. **Napisane z pamięci i do sprawdzenia
+  kompilatorem:** `PreLoginEvent` (w tym `getUniqueId()` i `PreLoginComponentResult`: `forceOnlineMode`, `forceOfflineMode`,
+  `isOnlineModeAllowed`, `isForceOfflineMode`), `GameProfileRequestEvent` i `GameProfile#withId`, `PluginMessageEvent` z
+  `ForwardResult.handled()`, `MinecraftChannelIdentifier.create`, `ChannelRegistrar`, `ServerConnection#sendPluginMessage`,
+  `ServerPostConnectEvent#getPreviousServer`, `Player#isActive/isOnlineMode/createConnectionRequest(...).connect()`,
+  `ProxyServer#getConfiguration().isOnlineMode()`, `Scheduler.TaskBuilder#delay/repeat`, `EventManager#unregisterListener(s)`.
+  Jeśli któraś sygnatura się nie zgadza, kompilator wskaże ją od razu; poprawka jest lokalna.
+* **Zachowanie w prawdziwym Velocity:** kolejność handlerów (`PostOrder`) między pluginami, to że `PluginMessageEvent` jest zgłaszany
+  dla klienta na zarejestrowanym kanale, a `DisconnectEvent` przychodzi także po odrzuconym logowaniu. Pierwsze próby na stagingu
+  (Etap 5, punkt 3) powinny to potwierdzić; tryb shadow (punkt 4) sprawdza decyzje na prawdziwym ruchu.
 
-### Dalej
+### Do zrobienia później, poza tym repozytorium
 
-Etap 3 (Velocity: wejście, premium, przekazywanie danych), etap 4 (Paper: Foundation, blokada zdarzeń, bridge), etap 5 (testy
-i wdrożenie). Importer z mineLogin powstanie razem z logiką haseł w etapie 3.
+* **JustBans: przenieść poprawkę `Sql.setInstant` / `Sql.instant`.** `justbans-common/.../database/Sql.java` zapisuje czas przez
+  `setTimestamp(Timestamp.from(...))` (linia 35) i czyta przez `getTimestamp(...).toInstant()` (linie 50–52), co zapisuje czas strefy
+  JVM-a. Wzór: `Sql.setInstant` i `Sql.instant` w `authenticator-common` oraz test z JVM-em ustawionym na `Pacific/Auckland`
+  (sprawdza wartość zapisaną przez serwer, a nie odczyt przez ten sam kod). Dotknie też testów JustBans, które zakładają stary format.
+
+### Dalej: Etap 4 (Paper)
+
+Zatrzymano się przed Etapem 4. Co Paper musi spełnić (z protokołu opisanego wyżej):
+
+* `Migrator.verify()` przy starcie; baza przez warstwę z `common`; `bridge.mode` i sekret jak na proxy; `node-id` **inny niż proxy**.
+* Zarejestrować kanał `authenticator:bridge` w obie strony i weryfikować wiadomości przez `EnvelopeVerifier` z `BridgeConfig`
+  (`PluginMessagingTransport` na Paperze). Uwaga: na Paperze wiadomość PMC zawsze przychodzi „przez gracza” (tak działa kanał), więc po
+  źródle nie da się odróżnić proxy od klienta. Chronią podpis HMAC, to że proxy nie przepuszcza wiadomości klientów na ten kanał, i
+  zamknięte dla świata porty Paperów (Etap 3, punkt 9).
+* Przy każdym wejściu gracza stan z lokalnego cache, a gdy go nie ma — z `auth_presence`; wiadomość `AUTH_STATE` odrzucana, gdy jej `epoch`
+  jest starszy niż znany.
+* `/authadmin`: `forcelogin`/`forcelogout` zapisują wiersz `auth_presence` (`FORCED`, własny `node-id`, `epoch` + 1); zmiany haseł i typu
+  konta idą `UPDATE` z podbiciem `version` przez `AccountRepository`; po akcji opcjonalny `ACCOUNT_CHANGED`.
+* Blokada zdarzeń na `AUTH` w 100% szczelna (lista w „Bramka”).

@@ -16,6 +16,7 @@ import pl.kingdomcraft.authenticator.common.config.ZonedEndpoints;
 import pl.kingdomcraft.authenticator.common.database.Database;
 import pl.kingdomcraft.authenticator.common.database.DatabaseConfig;
 import pl.kingdomcraft.authenticator.common.database.DatabaseEndpoint;
+import pl.kingdomcraft.authenticator.common.database.Migrator;
 import pl.kingdomcraft.authenticator.common.database.SslMode;
 
 /**
@@ -61,6 +62,7 @@ public final class TestMariaDb {
 		return server;
 	}
 
+	/** @param migrate whether to apply the bundled migrations, so the schema is ready to use */
 	public static Schema createSchema(boolean migrate) throws SQLException {
 		final Server server = requireServer();
 		final String name = "authtest_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -72,6 +74,9 @@ public final class TestMariaDb {
 
 		final DatabaseConfig config = new DatabaseConfig(name, new ZonedEndpoints<>(Zone.PRIVATE, List.of(), Map.of(Zone.PRIVATE, server.endpoint(SslMode.DISABLE, Map.of()))), 4, 5_000);
 		final Database database = Database.connect(config, Logger.getLogger("test"));
+
+		if (migrate)
+			new Migrator(database, Logger.getLogger("test")).migrate();
 
 		return new Schema(server, name, config, database);
 	}

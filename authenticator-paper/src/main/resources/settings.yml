@@ -77,15 +77,29 @@ Database:
       Properties: {}
 
 # -------------------------------------------------------------------------------------------------
-# The shared Redis that carries messages between the proxy and the servers. The database stays the
-# source of truth: if Redis is down, players are still checked against the database, just a little later.
+# How the proxy tells this server about a player's login state. Whatever the mode, the database (table
+# auth_presence) is the source of truth, and this server checks it whenever a player joins; a message only
+# makes a change visible sooner.
+#
+#   plugin-messaging - DEFAULT. Signed messages through the player's own connection. Needs no extra service.
+#   redis            - Signed messages through Redis (see the Redis section below).
+#   database-only    - No messages; only the database. Needs no Secret.
+#
+#   Secret           - REQUIRED unless Mode is database-only. At least 16 characters, identical to the proxy's.
+#                      Every message is signed with it; anything else is ignored.
+#   Max_Skew_Seconds - messages whose time differs from this server's clock by more than this are dropped,
+#                      so keep the clocks of all machines synchronized (NTP).
+# -------------------------------------------------------------------------------------------------
+Bridge:
+  Mode: plugin-messaging
+  Secret: ""
+  Max_Skew_Seconds: 30
+
+# -------------------------------------------------------------------------------------------------
+# Redis is OPTIONAL: this section is only used when Bridge.Mode is redis, and ignored otherwise.
 #
 # Use, Fallback and the two endpoints work like in Database. The public endpoint must use Ssl: true.
 #
-#   Secret            - REQUIRED, at least 16 characters, identical on the proxy and on every server.
-#                       Every message is signed with it; anything else is ignored.
-#   Max_Skew_Seconds  - messages whose time differs from this server's clock by more than this are
-#                       dropped, so keep the clocks of all machines synchronized (NTP).
 #   Verify_Hostname   - with Ssl, check that the certificate is valid for Host.
 #   Ssl_Trust_Store   - PKCS12 (or .jks) file with the certificates to trust, for a server whose
 #                       certificate comes from your own CA. Empty: trust what Java trusts.
@@ -94,8 +108,6 @@ Redis:
   Use: private
   Fallback: []
   Prefix: "authenticator:"
-  Secret: ""
-  Max_Skew_Seconds: 30
   Endpoints:
     Private:
       Host: "10.0.0.6"

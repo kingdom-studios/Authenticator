@@ -16,12 +16,8 @@ import pl.kingdomcraft.authenticator.common.config.Zone;
 
 class RedisConfigTest {
 
-	private static final String SECRET = "0123456789abcdef-test-secret";
-
 	private static Map<String, Object> redis(Object use, Object fallback, Map<String, Object> endpoints, Object... extra) {
 		final Map<String, Object> map = new LinkedHashMap<>();
-
-		map.put("secret", SECRET);
 
 		if (use != null)
 			map.put("use", use);
@@ -66,7 +62,6 @@ class RedisConfigTest {
 		final RedisConfig config = RedisConfig.parse(redis("private", null, both()), Zone.PRIVATE);
 
 		assertEquals(Channels.DEFAULT_PREFIX, config.prefix());
-		assertEquals(30, config.maxSkewSeconds());
 		assertEquals(6379, config.zones().endpoints().get(Zone.PRIVATE).port());
 		assertEquals(0, config.zones().endpoints().get(Zone.PRIVATE).database());
 		assertEquals(5_000, config.zones().endpoints().get(Zone.PRIVATE).connectTimeoutMs());
@@ -83,22 +78,6 @@ class RedisConfigTest {
 		endpoints.put("public", Map.of("host", "redis.example.pl", "ssl", false));
 
 		assertThrows(ConfigException.class, () -> RedisConfig.parse(redis("public", null, endpoints), Zone.PUBLIC));
-	}
-
-	@Test
-	void secretIsRequiredAndMustBeLongEnough() {
-		final Map<String, Object> noSecret = redis("private", null, both());
-		noSecret.remove("secret");
-		assertThrows(ConfigException.class, () -> RedisConfig.parse(noSecret, Zone.PRIVATE));
-
-		assertThrows(ConfigException.class, () -> RedisConfig.parse(redis("private", null, both(), "secret", "short"), Zone.PRIVATE));
-	}
-
-	@Test
-	void clockSkewIsBounded() {
-		assertThrows(ConfigException.class, () -> RedisConfig.parse(redis("private", null, both(), "max-skew-seconds", 0), Zone.PRIVATE));
-		assertThrows(ConfigException.class, () -> RedisConfig.parse(redis("private", null, both(), "max-skew-seconds", 301), Zone.PRIVATE));
-		assertEquals(120, RedisConfig.parse(redis("private", null, both(), "max-skew-seconds", 120), Zone.PRIVATE).maxSkewSeconds());
 	}
 
 	@Test
@@ -122,10 +101,10 @@ class RedisConfigTest {
 	}
 
 	@Test
-	void secretsAndPasswordsNeverAppearInText() {
+	void passwordsNeverAppearInText() {
 		final RedisConfig config = RedisConfig.parse(redis("public", null, both()), Zone.PUBLIC);
 
-		assertFalse(config.toString().contains(SECRET));
+		assertFalse(config.toString().contains("p4ss"));
 		assertFalse(config.zones().endpoints().get(Zone.PUBLIC).toString().contains("p4ss"));
 	}
 

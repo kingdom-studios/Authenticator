@@ -58,6 +58,16 @@ public final class ConfigSection {
 		return new ConfigException(this.path(key) + ": " + message);
 	}
 
+	/** Builds a value from this section's settings; a validation failure inside it is reported as a {@link ConfigException} naming this section. */
+	public <T> T build(java.util.function.Supplier<T> constructor) {
+		try {
+			return constructor.get();
+
+		} catch (final IllegalArgumentException ex) {
+			throw new ConfigException(this.path.isEmpty() ? ex.getMessage() : this.path + ": " + ex.getMessage(), ex);
+		}
+	}
+
 	/** @return the nested section, or null if the key is absent */
 	public ConfigSection section(String key) {
 		final Object value = this.values.get(normalize(key));

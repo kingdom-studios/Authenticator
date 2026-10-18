@@ -7,10 +7,10 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -19,7 +19,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -31,8 +30,6 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.gson.JsonObject;
 
 import pl.kingdomcraft.authenticator.common.config.Zone;
@@ -61,7 +58,7 @@ import redis.clients.jedis.params.SetParams;
 public final class RedisBus implements AutoCloseable {
 
 	/** Largest accepted or published message, in characters. */
-	public static final int MAX_MESSAGE_LENGTH = 16 * 1024;
+	public static final int MAX_MESSAGE_LENGTH = EnvelopeVerifier.MAX_MESSAGE_LENGTH;
 
 	private static final long INITIAL_BACKOFF_MS = 1_000;
 	private static final long MAX_BACKOFF_MS = 30_000;
@@ -72,9 +69,6 @@ public final class RedisBus implements AutoCloseable {
 
 	/** While on a fallback endpoint, the primary is probed every this many ping intervals. */
 	private static final int FAILBACK_EVERY_PINGS = 4;
-
-	/** Invalid-signature warnings are logged at most this often, so someone with access to Redis cannot flood the log. */
-	private static final long WARN_INTERVAL_MS = 30_000;
 
 	/** The endpoint messages are currently published on. */
 	private record Active(int index, Zone zone, RedisEndpoint endpoint, JedisPool pool) {
@@ -92,26 +86,17 @@ public final class RedisBus implements AutoCloseable {
 	/** Socket factory per candidate (same index) for endpoints with their own trust store, null for the others. */
 	private final List<SSLSocketFactory> socketFactories = new ArrayList<>();
 	private final Channels channels;
-	private final HmacSigner signer;
+	private final EnvelopeVerifier verifier;
 	private final String nodeId;
 	private final Clock clock;
 	private final Logger logger;
-	private final Duration maxSkew;
 	private final long pingIntervalMs;
 
 	private final Map<String, List<Consumer<Envelope>>> listeners = new ConcurrentHashMap<>();
 	private final List<ConnectionListener> connectionListeners = new CopyOnWriteArrayList<>();
 
-	/** Memory of recent message ids. It must outlive the clock-skew window, otherwise a replayed message could slip through. */
-	private final Cache<String, Boolean> seen;
-
 	private final ExecutorService dispatcher = Executors.newSingleThreadExecutor(daemon("Authenticator-Redis-Dispatch"));
 	private final ScheduledExecutorService pinger = Executors.newSingleThreadScheduledExecutor(daemon("Authenticator-Redis-Ping"));
-
-	private final AtomicLong rejectedSignatures = new AtomicLong();
-	private final AtomicLong rejectedStale = new AtomicLong();
-	private final AtomicLong rejectedMalformed = new AtomicLong();
-	private volatile long lastWarnAt;
 
 	private volatile BooleanSupplier traceEnabled = () -> false;
 	private volatile Consumer<String> traceSink = line -> {
@@ -124,12 +109,12 @@ public final class RedisBus implements AutoCloseable {
 	private Thread subscriberThread;
 	private int pingsOnFallback;
 
-	public RedisBus(RedisConfig config, String nodeId, Clock clock, Logger logger) {
-		this(config, nodeId, clock, logger, PING_INTERVAL_MS);
+	public RedisBus(RedisConfig config, EnvelopeVerifier verifier, String nodeId, Clock clock, Logger logger) {
+		this(config, verifier, nodeId, clock, logger, PING_INTERVAL_MS);
 	}
 
 	/** @param pingIntervalMs how often the subscription is kept alive and, on a fallback, the primary is probed; tests shorten it */
-	RedisBus(RedisConfig config, String nodeId, Clock clock, Logger logger, long pingIntervalMs) {
+	RedisBus(RedisConfig config, EnvelopeVerifier verifier, String nodeId, Clock clock, Logger logger, long pingIntervalMs) {
 		this.pingIntervalMs = pingIntervalMs;
 		this.candidates = config.zones().candidates();
 
@@ -137,12 +122,10 @@ public final class RedisBus implements AutoCloseable {
 			this.socketFactories.add(trustingSocketFactory(candidate.endpoint()));
 
 		this.channels = new Channels(config.prefix());
-		this.signer = config.signer();
+		this.verifier = verifier;
 		this.nodeId = nodeId;
 		this.clock = clock;
 		this.logger = logger;
-		this.maxSkew = config.maxSkew();
-		this.seen = Caffeine.newBuilder().maximumSize(50_000).expireAfterWrite(this.maxSkew.multipliedBy(2).plusMinutes(5)).build();
 		this.active = this.open(0);
 	}
 
@@ -165,16 +148,16 @@ public final class RedisBus implements AutoCloseable {
 	}
 
 	public long rejectedSignatures() {
-		return this.rejectedSignatures.get();
+		return this.verifier.rejectedSignatures();
 	}
 
 	/** Messages dropped for being too old, too far in the future, or already seen. */
 	public long rejectedStale() {
-		return this.rejectedStale.get();
+		return this.verifier.rejectedStale();
 	}
 
 	public long rejectedMalformed() {
-		return this.rejectedMalformed.get();
+		return this.verifier.rejectedMalformed();
 	}
 
 	/**
@@ -273,10 +256,7 @@ public final class RedisBus implements AutoCloseable {
 	 * @throws BusException if Redis is unreachable or the message is too large
 	 */
 	public long publish(String channel, Envelope envelope) {
-		final String json = this.signer.sign(envelope).toJson();
-
-		if (json.length() > MAX_MESSAGE_LENGTH)
-			throw new BusException("Message of type " + envelope.type() + " is " + json.length() + " characters, over the " + MAX_MESSAGE_LENGTH + " limit");
+		final String json = this.verifier.sign(envelope);
 
 		try (Jedis jedis = this.active.pool().getResource()) {
 			final long receivers = jedis.publish(channel, json);
@@ -587,41 +567,14 @@ public final class RedisBus implements AutoCloseable {
 	// ------------------------------------------------------------------------------------------
 
 	private void handle(String channel, String message) {
-		if (message.length() > MAX_MESSAGE_LENGTH) {
-			this.rejectedMalformed.incrementAndGet();
-			this.warnLimited("Dropped oversized Redis message on " + channel + " (" + message.length() + " characters)");
+		final Optional<Envelope> accepted = this.verifier.accept(message, "Redis channel " + channel);
+
+		if (accepted.isEmpty()) {
+			this.trace(() -> "dropped a message on " + channel + " (" + message.length() + " chars)");
 			return;
 		}
 
-		final Envelope envelope;
-
-		try {
-			envelope = Envelope.fromJson(message);
-		} catch (final Envelope.InvalidEnvelopeException ex) {
-			this.rejectedMalformed.incrementAndGet();
-			this.warnLimited("Dropped malformed Redis message on " + channel + ": " + ex.getMessage());
-			return;
-		}
-
-		if (!this.signer.verify(envelope)) {
-			this.rejectedSignatures.incrementAndGet();
-			this.trace(() -> "received " + envelope.type() + " from " + envelope.node() + " on " + channel + " (signature INVALID)");
-			this.warnLimited("Dropped a Redis message (" + envelope.type() + ") from '" + envelope.node() + "' on " + channel + ": invalid signature. Check that the secret matches on every node.");
-			return;
-		}
-
-		if (!HmacSigner.isFresh(envelope, this.clock, this.maxSkew)) {
-			this.rejectedStale.incrementAndGet();
-			this.warnLimited("Dropped a Redis message (" + envelope.type() + ") from '" + envelope.node() + "': its timestamp is more than " + this.maxSkew.toSeconds()
-					+ "s from this node's clock. Check that the clocks of the proxy and the servers are synchronized.");
-			return;
-		}
-
-		// Only authentic, fresh ids are remembered, so forged ids cannot suppress real messages.
-		if (this.seen.asMap().putIfAbsent(envelope.id(), Boolean.TRUE) != null) {
-			this.rejectedStale.incrementAndGet();
-			return;
-		}
+		final Envelope envelope = accepted.get();
 
 		this.trace(() -> "received " + envelope.type() + " from " + envelope.node() + " on " + channel + " (" + message.length() + " chars, signature ok)");
 
@@ -636,15 +589,6 @@ public final class RedisBus implements AutoCloseable {
 			} catch (final RuntimeException ex) {
 				this.logger.log(Level.SEVERE, "Redis listener failed for " + envelope.type() + " on " + channel, ex);
 			}
-	}
-
-	private void warnLimited(String message) {
-		final long now = this.clock.millis();
-
-		if (now - this.lastWarnAt >= WARN_INTERVAL_MS) {
-			this.lastWarnAt = now;
-			this.logger.warning(message);
-		}
 	}
 
 	private static String blankToNull(String value) {
