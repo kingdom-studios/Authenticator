@@ -23,6 +23,7 @@ import pl.kingdomcraft.authenticator.common.database.DatabaseConfig;
 import pl.kingdomcraft.authenticator.common.database.DatabaseEndpoint;
 import pl.kingdomcraft.authenticator.common.hash.HashAlgo;
 import pl.kingdomcraft.authenticator.common.messaging.RedisConfig;
+import pl.kingdomcraft.authenticator.common.settings.BackendSettings;
 import pl.kingdomcraft.authenticator.common.settings.ProxySettings;
 
 /** The config files shipped by the platform modules must load through the same parsers the plugins use. */
@@ -162,5 +163,30 @@ class SampleConfigsTest {
 	@Test
 	void thePaperSampleWithoutASecretIsRefused() throws IOException {
 		assertThrows(ConfigException.class, () -> BridgeConfig.parse(load(PAPER), Zone.PRIVATE));
+	}
+
+	@Test
+	void thePaperSampleLoadsAsBackendSettingsWithItsSharedSections() throws IOException {
+		final BackendSettings settings = BackendSettings.parse(withSecret(load(PAPER)));
+
+		assertEquals("paper-1", settings.nodeId());
+		assertEquals(Zone.PRIVATE, settings.database().zones().use());
+		assertEquals(BridgeMode.PLUGIN_MESSAGING, settings.bridge().mode());
+		assertEquals(List.of("mojang", "ashcon", "minetools"), settings.premium().apis());
+		assertEquals(HashAlgo.BCRYPT, settings.passwords().hasher().algorithm());
+		assertEquals(6, settings.passwords().minLength());
+		assertEquals("`mineLogin`", settings.minelogin().qualifiedName());
+	}
+
+	@Test
+	void thePaperSampleKeepsThePaperOnlySectionsFoundationReads() throws IOException {
+		final Map<String, Object> root = load(PAPER);
+
+		assertEquals("GAME", section(root, "Server").get("Role"), "the default role is the strict one");
+		assertEquals(Boolean.TRUE, section(root, "Gate").get("Hide_Unauthenticated"));
+		assertNotNull(section(root, "Gate").get("Poll_Seconds"));
+		assertNotNull(section(root, "Login_Spawn").get("World"));
+		assertNotNull(root.get("Locale"));
+		assertEquals(List.of("auth", "authenticator"), root.get("Command_Aliases"), "not authadmin: the proxy has that one");
 	}
 }

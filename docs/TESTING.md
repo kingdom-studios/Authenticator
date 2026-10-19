@@ -9,7 +9,7 @@ passes on a bare machine.
 
 | Needs | Provided by | Without it |
 |---|---|---|
-| MariaDB 10.11+ | `AUTHENTICATOR_TEST_MARIADB=host:port:user:password` | 207 of the 442 tests are skipped |
+| MariaDB 10.11+ | `AUTHENTICATOR_TEST_MARIADB=host:port:user:password` | 252 of the 503 tests in authenticator-common are skipped |
 | Redis 7 | `redis-server` on the `PATH` (a throwaway process on a random port is started per test class) | the Redis tests are skipped |
 | Redis with TLS | the above plus `openssl` and `keytool` (a self-signed certificate is generated per test) | the TLS tests are skipped |
 | MariaDB with TLS | `AUTHENTICATOR_TEST_MARIADB_CERT` and `AUTHENTICATOR_TEST_MARIADB_OTHER_CERT` | the TLS tests are skipped |
@@ -35,7 +35,7 @@ Testcontainers is not used: it needs a Docker daemon, which not every build mach
 The checks that matter for security were mutation-tested: each was disabled in turn and exactly the test meant to catch it
 failed. Disabled and caught: the HMAC signature check, the clock-skew check, the replay check and TLS host name verification.
 
-Mutated since (20 mutations, each disabled in turn; every one made a test in the class meant to catch it fail, and none was a compile error):
+Mutated since (40 mutations in two rounds, each disabled in turn; every one made a test in the class meant to catch it fail, and none was a compile error):
 the checks of the bridge origin (a message a player's client sent is dropped before it is parsed), the watcher's rules for
 what another node may write (only a forced login or a logout, never from the proxy's own id, never older than the proxy's last write),
 the routing rule that keeps unauthenticated players on a waiting server, the shadow mode's promise to write nothing, and the
@@ -47,14 +47,22 @@ refusal of unknown message keys, the clean-up of expired rows, the cap on shadow
 watcher. `ProxyCoreIntegrationTest` starts it on a real database with a fake carrier standing in for PluginMessaging, and with a real Redis
 for the Redis mode, and checks what is sent, who may send, and what changes.
 
-## The Velocity adapter
+## The Velocity and Paper modules
 
-The `velocity` and `paper` modules need `repo.papermc.io`, which the environment these tests were written in cannot reach, so they
-could not be compiled against the real API there. `tools/velocity-simulation` stands in: it compiles the adapter against hand-written
-stubs of the small part of the Velocity API it uses (taking the signatures from the JustBans plugin, which does compile, where it uses
-the same calls) and then drives the real adapter classes through a whole session on a real database: pre-login, profile, login, first
-server, registering, being moved to the lobby, a premium player, refusals, the bridge channel with messages from a server and from a
-client, the login timeout and shadow mode. It proves that the adapter is consistent and does what it should *given the model of the
-API in the stubs*; it cannot prove that the model is right. Run `mvn -pl authenticator-velocity -am clean package` on a machine that can
-reach the repository, and delete the simulation when you trust that.
+Both compile against the real APIs (velocity-api, paper-api, Foundation); `mvn clean test-compile` covers the whole reactor. Their tests run
+without a server, with the real event and channel classes and stand-ins for players, servers and the `Server`:
 
+* **Velocity**: the carrier on the proxy (a message from a backend server is handed on and not forwarded; one from a player's client is
+  neither forwarded nor read, even when correctly signed; a bad signature; another plugin's channel is left alone; what is sent to the
+  server a player is on), the reading of another plugin's pre-login result for shadow mode, the rendering of every message in both languages
+  (a value can never inject formatting), and the shipped `config.yml` through Configurate.
+* **Paper**: the gatekeeper with real Bukkit events (movement on every axis, only turning the head allowed, teleports, command list, chat,
+  blocks, interactions, drops, damage including a frozen player's arrow, hunger, hand swaps) and a list of events that must be covered; the
+  rules Foundation applies to `@AutoRegister` classes (otherwise the plugin fails to start); the shipped `settings.yml` through the same parser
+  the plugin uses; both language files against the messages in the code; the placeholders.
+* Everything that does not need Velocity or Paper is in `authenticator-common` and tested on a real database: `ProxyCore`, `BackendCore`
+  (a proxy and a backend server on one database talking through the real bridge code, over PluginMessaging, over Redis and with no bridge),
+  `JoinVerifier`, `Gate`, `AdminService`.
+
+What these cannot show is how a real Velocity or Paper behaves (handler order between plugins, which events a client's plugin message
+raises, signed commands, `hidePlayer`). That is for the staging run (plan, Stage 5).

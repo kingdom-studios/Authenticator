@@ -32,6 +32,9 @@ servers. It is the only place a decision is made: a Paper server only checks tha
 | `/authadmin status` | `authenticator.admin` (and the console) | |
 | `/authadmin migrate minelogin [dry-run]` | `authenticator.admin` (and the console) | imports accounts from mineLogin's table, which is only read |
 
+The account commands for admins (`info`, `unregister`, `changepassword`, `forcelogin`, `forcelogout`, `setpremium`, `setcracked`) are `/auth` on the
+Paper servers, see [PAPER.md](PAPER.md).
+
 The player commands live on the proxy, so a password never reaches a Paper server. They have no tab completion.
 
 ## How a connection is decided

@@ -25,7 +25,9 @@ public final class AuditRepository {
 		ACCOUNT_RENAMED,
 		PASSWORD_UPGRADED,
 		IP_BLOCKED,
-		IMPORT
+		IMPORT,
+		FORCED_LOGIN,
+		FORCED_LOGOUT
 	}
 
 	private static final int MAX_DETAILS = 255;

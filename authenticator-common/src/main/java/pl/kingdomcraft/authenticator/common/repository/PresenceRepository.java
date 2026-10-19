@@ -38,9 +38,20 @@ public final class PresenceRepository {
 
 	/** Writes the player's state and counts the epoch up. @return the new epoch */
 	public long save(UUID uuid, Long accountId, AuthState state, AuthMethod method, String proxyId) throws SQLException {
+		return this.save(uuid, accountId, state, method, proxyId, 1);
+	}
+
+	/**
+	 * Writes the player's state and counts the epoch up, but never to less than {@code minEpoch}. A row that was deleted (its account
+	 * was removed, which removes the row with it) starts again at 1; the caller passes one more than the epoch it last wrote, so that the
+	 * epoch of a connection only ever grows and a server that remembers the old number does not take the new state for a late message.
+	 *
+	 * @return the new epoch
+	 */
+	public long save(UUID uuid, Long accountId, AuthState state, AuthMethod method, String proxyId, long minEpoch) throws SQLException {
 		return this.database.transaction(connection -> {
-			try (PreparedStatement statement = connection.prepareStatement("INSERT INTO auth_presence (uuid, account_id, state, method, epoch, proxy_id) VALUES (?, ?, ?, ?, 1, ?) "
-					+ "ON DUPLICATE KEY UPDATE account_id = VALUES(account_id), state = VALUES(state), method = VALUES(method), epoch = epoch + 1, proxy_id = VALUES(proxy_id)")) {
+			try (PreparedStatement statement = connection.prepareStatement("INSERT INTO auth_presence (uuid, account_id, state, method, epoch, proxy_id) VALUES (?, ?, ?, ?, ?, ?) "
+					+ "ON DUPLICATE KEY UPDATE account_id = VALUES(account_id), state = VALUES(state), method = VALUES(method), epoch = GREATEST(epoch + 1, VALUES(epoch)), proxy_id = VALUES(proxy_id)")) {
 				Sql.setUuid(statement, 1, uuid);
 
 				if (accountId == null)
@@ -50,7 +61,8 @@ public final class PresenceRepository {
 
 				statement.setString(3, state.name());
 				Sql.setString(statement, 4, method == null ? null : method.name());
-				statement.setString(5, proxyId);
+				statement.setLong(5, Math.max(1, minEpoch));
+				statement.setString(6, proxyId);
 				statement.executeUpdate();
 			}
 

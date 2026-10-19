@@ -271,6 +271,21 @@ class RepositoriesIntegrationTest {
 	}
 
 	@Test
+	void theEpochNeverGoesBackWhenTheRowWasDeletedAndWrittenAgain() throws Exception {
+		final Account account = this.cracked("Steve");
+		final UUID uuid = account.uuid();
+
+		this.presence.save(uuid, account.id(), AuthState.AUTHENTICATED, AuthMethod.PASSWORD, "velocity-1");
+		assertEquals(7, this.presence.save(uuid, account.id(), AuthState.AUTHENTICATED, AuthMethod.PASSWORD, "velocity-1", 7), "a floor raises it");
+
+		this.presence.delete(uuid); // what removing an account does to its row
+
+		assertEquals(8, this.presence.save(uuid, null, AuthState.PENDING_REGISTER, null, "velocity-1", 8), "the caller asks for one more than it last wrote, so the connection's epoch only grows");
+		assertEquals(9, this.presence.save(uuid, null, AuthState.PENDING_REGISTER, null, "velocity-1", 1), "a floor never lowers it");
+		assertEquals(10, this.presence.save(uuid, null, AuthState.PENDING_REGISTER, null, "paper-1", 2), "and the first row of a player still starts at the floor");
+	}
+
+	@Test
 	void aNewPlayerWhoHasNotRegisteredHasNoAccountYet() throws Exception {
 		final UUID uuid = UUID.randomUUID();
 

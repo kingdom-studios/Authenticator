@@ -162,7 +162,7 @@ Migracje wersjonowane przez `Migrator`; tylko celowane `UPDATE`, bez `REPLACE IN
 
 - `SimplePlugin`, `SimpleSettings` (endpoint domyślnie `private`, Redis, sekret, rola serwera `AUTH` / `GAME`,
   spawn logowania), `SimpleLocalization`.
-- Listenery przez `@AutoRegister`. `SimpleCommandGroup /authadmin`: info, unregister, changepassword,
+- Listenery przez `@AutoRegister`. `SimpleCommandGroup /auth` (nie `/authadmin`, patrz „Odstępstwa”): info, unregister, changepassword,
   forcelogin, setpremium / setcracked, migrate, status.
 - Schedulery Foundation (`Common.runAsync` / `runLater`), `Debugger`, `SimpleExpansion`
   (PAPI: `%auth_premium%`, `%auth_registered%`).
@@ -303,6 +303,34 @@ nakładką (zdarzenia, komendy, połączenia).
 * Testy: patrz [TESTING.md](TESTING.md). Mutowane (wyłączane po kolei, za każdym razem wywala się właściwy test): źródło wiadomości PMC,
   reguły `StateWatcher` (co wolno obcemu węzłowi), routing poczekalni, obietnice trybu shadow, odrzucanie nieznanych kluczy tekstów.
 
+### Etap 4 — zrobiony (logika w `authenticator-common`, wtyczka w `authenticator-paper`)
+
+Tak jak na proxy: wszystko, co nie potrzebuje Papera, jest w `common` i testowane na prawdziwej bazie; moduł Paper to cienka nakładka na
+Foundation. Opis dla admina: [PAPER.md](PAPER.md).
+
+* **`Gate`** (stan w pamięci, `ConcurrentHashMap<UUID, …>`): nieznany gracz = niezalogowany, więc serwer, który się uruchamia albo ma
+  zepsutą bazę, jest zamknięty. Stan niesie `epoch` proxy; starszy raport jest ignorowany, ten sam dwa razy nic nie zmienia.
+* **`JoinVerifier`**: drzwi i obserwacja. `checkLogin` (w `AsyncPlayerPreLoginEvent`, poza głównym wątkiem) czyta rekord proxy z
+  `auth_presence`: brak rekordu → odmowa; `GAME` i niezalogowany → odmowa; błąd bazy → odmowa. Potem co `Poll_Seconds` czytana jest baza
+  dla wszystkich graczy na serwerze, a wiadomość z mostu przyspiesza zmianę do zera. Dwa źródła, żadne nie wymaga drugiego.
+* **`Gatekeeper`** (Paper): tabela zdarzeń, każde anulowane na pierwszym i ostatnim priorytecie; ruch (tylko obrót głowy, `setTo` z oryginalnym
+  obrotem), teleporty (tylko własny na spawn logowania), komendy i ich podpowiedzi, czat, interakcje, bloki, ekwipunek, upuszczanie,
+  podnoszenie, zamiana rąk, obrażenia (zadawane, otrzymywane, pociski), głód, portale, ukrywanie niezalogowanych. `GatekeeperTest` zatrzymuje
+  budowanie, gdy zdarzenie wypadnie z listy.
+* **`BackendCore`**: baza (`Migrator.verify`, nigdy `migrate`), most (`plugin-messaging` / `redis` / `database-only`), `AdminService`, importer.
+* **`AdminService`** + `/auth`: `info`, `unregister`, `changepassword`, `forcelogin`, `forcelogout`, `setpremium`, `setcracked`, `migrate`,
+  `status`. Każda akcja to zmiana w bazie (`auth_audit` z nazwą admina) i, jeśli się da, `ACCOUNT_CHANGED` do proxy, żeby zareagowało od razu.
+* **PlaceholderAPI** (`SimpleExpansion`): `state`, `premium`, `registered`; tylko pamięć, nigdy baza.
+* **Lokalizacja** `pl` / `en` (`SimpleLocalization`), **ustawienia** (`SimpleSettings`) i część wspólna z proxy (`BackendSettings`).
+* Testy: patrz [TESTING.md](TESTING.md). Mutowane: drzwi (`GAME`, nieznany gracz, błąd bazy, zapomnienie starego stanu), reguły `Gate`,
+  `AdminService`, tabela `Gatekeeper` (ruch na każdej osi, teleporty, podpowiedzi komend, pociski), epoch.
+
+**Błąd znaleziony w trakcie (dotyczył też Etapu 3):** `auth_presence` ma `ON DELETE CASCADE` na koncie, więc usunięcie konta kasuje wiersz,
+a następny zapis zaczynał liczyć `epoch` od 1. Serwer pamiętający wyższy numer brał nowy stan za spóźnioną wiadomość i ignorował go, więc
+gracz z usuniętym kontem zostawał „zalogowany” na serwerze gry. Teraz `PresenceRepository.save` dostaje dolną granicę (`epoch` sesji + 1)
+i `epoch` połączenia tylko rośnie. Test: `BackendCoreIntegrationTest` (proxy i serwer na jednej bazie, prawdziwy most) i
+`RepositoriesIntegrationTest`.
+
 ### Odstępstwa od pierwotnego planu i dlaczego
 
 * **Fallback bazy w aplikacji, nie przez `sequential`** — patrz Etap 2.
@@ -320,29 +348,32 @@ nakładką (zdarzenia, komendy, połączenia).
 * **Kolejność wierszy importu zależy od czasu rejestracji**, nie od kolejności skanowania tabeli: przy dwóch nickach różniących się
   tylko wielkością liter (możliwe w mineLogin przy rozróżniającym wielkość collation) nick zachowuje ten, kto zarejestrował się pierwszy,
   a próba na sucho i prawdziwy import nie mogą się rozjechać.
+* **Komenda na Paperze to `/auth` (alias `/authenticator`), nie `/authadmin`.** Proxy ma komendę `/authadmin` (status i import), a komenda
+  zarejestrowana na proxy wygrywa z komendą serwera backendowego, więc `/authadmin` na Paperze byłby z gry nieosiągalny. Etykiety zmienia się
+  w `Command_Aliases`.
+* **Placeholdery to `%authenticator_state%`, `%authenticator_premium%`, `%authenticator_registered%`, nie `%auth_…%`.** Foundation nazywa
+  ekspansję nazwą wtyczki (`SimplePlugin.getNamed()`, sprawdzone w bytecodzie); przejście na `auth_` wymagałoby zmiany nazwy wtyczki.
+* **Kanał PMC na Paperze przez Bukkit `Messenger`**, nie przez `BungeeListener` Foundation: ten ma własny protokół wiadomości, a tu idą
+  surowe bajty podpisanej koperty.
+* **Rola domyślna to `GAME`** (ścisła): zapomniana rola odmawia, nie wpuszcza.
+* **`Yes` / `No` jako klucze YAML** są w YAML 1.1 wartościami `true` / `false`; teksty placeholderów to `True_Text` / `False_Text`.
+* **Symulacja Velocity (`tools/velocity-simulation`) usunięta**, bo prawdziwe API jest dostępne; jej miejsce zajęły testy modułu Velocity na
+  prawdziwych klasach zdarzeń.
 * **Przypomnienia o logowaniu co 10 s i język komunikatów (`language: pl|en`)** — nie były w planie; tanie, a bez nich gracz na poczekalni
   nie wie, co ma wpisać.
 
 ### Czego jeszcze nie zweryfikowano
 
-* **Moduły `velocity` i `paper` nie zostały skompilowane z prawdziwym API.** Środowisko tej sesji nadal blokuje `repo.papermc.io` i
-  `jitpack.io` (odmowa polityki sieci przy `CONNECT`, także po zmianie ustawień środowiska, którą widać dopiero w nowej sesji).
-  `mvn clean compile` na całym reaktorze zatrzymuje się na `velocity-api`; `authenticator-common` kompiluje się i przechodzi testy.
-* **Adapter Velocity był sprawdzony tylko na modelu API.** [`tools/velocity-simulation`](../tools/velocity-simulation) kompiluje go z
-  ręcznie napisanymi stubami (`-Xlint:all` czysto) i przeprowadza przez całe sesje na prawdziwej bazie. To dowodzi spójności adaptera,
-  nie zgodności stubów z prawdziwym API. Wywołania użyte także w JustBans (a więc sprawdzone kompilatorem): `@Plugin`, `@DataDirectory`,
-  `@Subscribe(order)`, `EventTask.async`, `LoginEvent`, `ComponentResult.denied`, `PlayerChooseInitialServerEvent`,
-  `ServerPreConnectEvent` i `ServerResult`, `DisconnectEvent`, `ServerPostConnectEvent#getPlayer`, `SimpleCommand`, `metaBuilder`,
-  `Scheduler#buildTask(...).schedule()`, `Player#getCurrentServer/disconnect/sendMessage`. **Napisane z pamięci i do sprawdzenia
-  kompilatorem:** `PreLoginEvent` (w tym `getUniqueId()` i `PreLoginComponentResult`: `forceOnlineMode`, `forceOfflineMode`,
-  `isOnlineModeAllowed`, `isForceOfflineMode`), `GameProfileRequestEvent` i `GameProfile#withId`, `PluginMessageEvent` z
-  `ForwardResult.handled()`, `MinecraftChannelIdentifier.create`, `ChannelRegistrar`, `ServerConnection#sendPluginMessage`,
-  `ServerPostConnectEvent#getPreviousServer`, `Player#isActive/isOnlineMode/createConnectionRequest(...).connect()`,
-  `ProxyServer#getConfiguration().isOnlineMode()`, `Scheduler.TaskBuilder#delay/repeat`, `EventManager#unregisterListener(s)`.
-  Jeśli któraś sygnatura się nie zgadza, kompilator wskaże ją od razu; poprawka jest lokalna.
-* **Zachowanie w prawdziwym Velocity:** kolejność handlerów (`PostOrder`) między pluginami, to że `PluginMessageEvent` jest zgłaszany
-  dla klienta na zarejestrowanym kanale, a `DisconnectEvent` przychodzi także po odrzuconym logowaniu. Pierwsze próby na stagingu
-  (Etap 5, punkt 3) powinny to potwierdzić; tryb shadow (punkt 4) sprawdza decyzje na prawdziwym ruchu.
+* **Moduły `velocity` i `paper` kompilują się z prawdziwym API** (velocity-api 3.4.0-SNAPSHOT, paper-api 26.2, Foundation 6.10.2) i przechodzi
+  `mvn clean test-compile` na całym reaktorze. Wszystkie wywołania, które na Etapie 3 pisałem z pamięci (`PreLoginEvent#getUniqueId`,
+  `ForwardResult.handled()`, `PreLoginComponentResult`, `GameProfile#withId`, `ServerConnection#sendPluginMessage`, `ProxyServer#getConfiguration`
+  i reszta listy), okazały się zgodne: nie trzeba było zmienić ani jednej sygnatury.
+* **Nic nie było uruchomione na prawdziwym Velocity ani Paperze.** Testy używają prawdziwych klas zdarzeń i API, ale gracze, serwery i `Server`
+  to atrapy; w tym środowisku nie ma serwera Minecrafta. Do potwierdzenia na stagingu (Etap 5, punkt 3): kolejność handlerów (`PostOrder`)
+  między pluginami; to że `PluginMessageEvent` jest zgłaszany dla klienta na zarejestrowanym kanale; `DisconnectEvent` po odrzuconym
+  logowaniu; zachowanie `PlayerCommandPreprocessEvent` przy komendach z podpisem (1.19.1+); to że `hidePlayer` i `teleportAsync` zachowują
+  się tak, jak zakładam; wiadomości PMC przychodzące na Paperze zanim wykona się `PlayerJoinEvent`.
+* **Sprawdzenie zachowania w przeglądarce / kliencie** (wygląd komunikatów MiniMessage i `&`) nie było możliwe.
 
 ### Do zrobienia później, poza tym repozytorium
 
@@ -351,17 +382,8 @@ nakładką (zdarzenia, komendy, połączenia).
   JVM-a. Wzór: `Sql.setInstant` i `Sql.instant` w `authenticator-common` oraz test z JVM-em ustawionym na `Pacific/Auckland`
   (sprawdza wartość zapisaną przez serwer, a nie odczyt przez ten sam kod). Dotknie też testów JustBans, które zakładają stary format.
 
-### Dalej: Etap 4 (Paper)
+### Dalej: Etap 5 (testy i wdrożenie)
 
-Zatrzymano się przed Etapem 4. Co Paper musi spełnić (z protokołu opisanego wyżej):
-
-* `Migrator.verify()` przy starcie; baza przez warstwę z `common`; `bridge.mode` i sekret jak na proxy; `node-id` **inny niż proxy**.
-* Zarejestrować kanał `authenticator:bridge` w obie strony i weryfikować wiadomości przez `EnvelopeVerifier` z `BridgeConfig`
-  (`PluginMessagingTransport` na Paperze). Uwaga: na Paperze wiadomość PMC zawsze przychodzi „przez gracza” (tak działa kanał), więc po
-  źródle nie da się odróżnić proxy od klienta. Chronią podpis HMAC, to że proxy nie przepuszcza wiadomości klientów na ten kanał, i
-  zamknięte dla świata porty Paperów (Etap 3, punkt 9).
-* Przy każdym wejściu gracza stan z lokalnego cache, a gdy go nie ma — z `auth_presence`; wiadomość `AUTH_STATE` odrzucana, gdy jej `epoch`
-  jest starszy niż znany.
-* `/authadmin`: `forcelogin`/`forcelogout` zapisują wiersz `auth_presence` (`FORCED`, własny `node-id`, `epoch` + 1); zmiany haseł i typu
-  konta idą `UPDATE` z podbiciem `version` przez `AccountRepository`; po akcji opcjonalny `ACCOUNT_CHANGED`.
-* Blokada zdarzeń na `AUTH` w 100% szczelna (lista w „Bramka”).
+Zatrzymano się po Etapie 4. Zostaje staging (Velocity + Paper `AUTH` + Paper `GAME`, scenariusze z Etapu 5, w tym próby ataku: sfałszowane
+plugin messages, bezpośrednie połączenie z backendem, klienci 1.19.1+ z podpisanym czatem, burza botów), tryb shadow na produkcji obok
+mineLogin, import, przełączenie w oknie serwisowym i rollback.

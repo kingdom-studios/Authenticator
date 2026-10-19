@@ -148,6 +148,7 @@
                             <include>org.json:json</include>
                             <include>com.github.ben-manes.caffeine:caffeine</include>
                             <include>com.google.code.gson:gson</include>
+                            <include>com.password4j:password4j</include>
                         </includes>
                     </artifactSet>
                     <filters>
@@ -198,6 +199,10 @@
                         <relocation>
                             <pattern>com.google.gson</pattern>
                             <shadedPattern>${shade.prefix}.gson</shadedPattern>
+                        </relocation>
+                        <relocation>
+                            <pattern>com.password4j</pattern>
+                            <shadedPattern>${shade.prefix}.password4j</shadedPattern>
                         </relocation>
                     </relocations>
                 </configuration>

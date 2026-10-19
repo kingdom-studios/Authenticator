@@ -37,6 +37,50 @@
 Node_Id: "paper-1"
 
 # -------------------------------------------------------------------------------------------------
+# What this server is for.
+#
+#   AUTH - the waiting server (lobby of the login). Players who have not logged in yet are let in and
+#          kept frozen until the proxy has logged them in; the proxy then moves them on.
+#   GAME - a server where the game is played. A player who has not logged in is refused at the door,
+#          a second line of defence in case the proxy ever sends one by mistake.
+#
+# Every server, whatever its role, freezes a player whose login is taken back (an admin logged them
+# out, their account was removed) until the proxy has dealt with them. The default is the strict one.
+# -------------------------------------------------------------------------------------------------
+Server:
+  Role: GAME
+
+# -------------------------------------------------------------------------------------------------
+# What a player who has not logged in can and cannot do, and how fast this server learns that they
+# have. Everything is blocked: moving, chat, commands (and the command suggestions), blocks, items,
+# inventories, damage, hunger, portals. Nothing is configurable on that on purpose.
+#
+#   Poll_Seconds         - how often the database is read for the players on this server. The proxy's
+#                          message makes a change visible at once; this is what catches the cases
+#                          where a message got lost, and it is the only way if Bridge.Mode is
+#                          database-only.
+#   Hide_Unauthenticated - players who have not logged in are hidden from everyone else.
+#   Message_Cooldown_Seconds - how often a frozen player is reminded that they have to log in when they
+#                          try something; 0 for never (the actions are blocked either way).
+# -------------------------------------------------------------------------------------------------
+Gate:
+  Poll_Seconds: 2
+  Hide_Unauthenticated: true
+  Message_Cooldown_Seconds: 3
+
+# -------------------------------------------------------------------------------------------------
+# Where players who have not logged in are put when they join an AUTH server. An empty World leaves
+# them where the server puts them. Ignored on GAME servers.
+# -------------------------------------------------------------------------------------------------
+Login_Spawn:
+  World: ""
+  X: 0.5
+  Y: 64.0
+  Z: 0.5
+  Yaw: 0.0
+  Pitch: 0.0
+
+# -------------------------------------------------------------------------------------------------
 # The shared MariaDB database (10.11 or newer), the same one the proxy uses.
 #
 # The proxy sits outside the infrastructure and reaches the database on its public address; Paper
@@ -130,6 +174,36 @@ Redis:
       Connect_Timeout_Ms: 5000
 
 # -------------------------------------------------------------------------------------------------
+# Used by the admin commands only. /auth setpremium asks the services below whether a name is an
+# original account (the same as the proxy's premium.apis); /auth changepassword and /auth setcracked
+# hash the new password with the algorithm below. Whatever is chosen here is understood by the proxy
+# (BCrypt, SHA-256, SHA-512 and Argon2 are all verified there), so the two need not match.
+# -------------------------------------------------------------------------------------------------
+Premium:
+  Apis: [mojang, ashcon, minetools]
+  Timeout_Ms: 3000
+
+Passwords:
+  Algorithm: bcrypt
+  Bcrypt_Cost: 12
+  Argon2:
+    Memory_Kib: 19456
+    Iterations: 2
+    Parallelism: 1
+  Min_Length: 6
+  # Passwords that are refused whatever their length (compared ignoring case).
+  Forbidden: [123456, 12345678, password, qwerty, 111111, abc123, letmein]
+
+# -------------------------------------------------------------------------------------------------
+# Where /auth migrate minelogin reads accounts from. It only reads. Empty Schema means the database
+# Authenticator itself uses.
+# -------------------------------------------------------------------------------------------------
+Migration:
+  Minelogin:
+    Schema: ""
+    Table: mineLogin
+
+# -------------------------------------------------------------------------------------------------
 # The formats used in the {date}, {date_short}, {date_month} and {location}. 
 #
 # See the link below to learn how to edit the date format:
@@ -144,15 +218,17 @@ Location_Format: "{world} {x}, {y}, {z}"
 # What commands should trigger the main plugin command group?
 #
 # * THE FIRST ALIAS IS THE MAIN LABEL, YOU CAN CHANGE IT BUT DO NOT REMOVE IT. *
+# * Not "authadmin": the proxy has a command of that name (status and the import) and a command
+#   registered on the proxy wins over this one for players. *
 # * EXAMPLE: [boss, b] will trigger your main command from "/boss" or "/b" * 
 # -------------------------------------------------------------------------------------------------
-Command_Aliases: [authenticator, auth]
+Command_Aliases: [auth, authenticator]
 
 # -------------------------------------------------------------------------------------------------
-# What language should we use for messages? If it exists, the language file will be copied 
+# What language should we use for messages: pl or en. The language file will be copied 
 # to your messages/ folder where you can edit it.
 # -------------------------------------------------------------------------------------------------
-Locale: en
+Locale: pl
 
 # -------------------------------------------------------------------------------------------------
 # The prefix used in front of most chat or console messages. You can manually use it with

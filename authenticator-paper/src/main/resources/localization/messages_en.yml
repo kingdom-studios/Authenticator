@@ -188,6 +188,65 @@ Data_Loading: "Database is currently loading data, please wait..."
 No_Permission: "&cNo permission: {permission}" 
 
 # -------------------------------------------------------------------------------------------------
+# What a player who has not logged in is told.
+# -------------------------------------------------------------------------------------------------
+Gate:
+  Login_First: "&cLog in first."
+  Starting: "&cThe server is still starting. Try again in a moment."
+  Refused_Not_Logged_In: "&cYou have not logged in. Join through the proxy and log in."
+  Refused_Unknown: "&cJoin the network through its main address."
+  Refused_Database: "&cYour login cannot be checked right now. Try again in a moment."
+
+# -------------------------------------------------------------------------------------------------
+# What the /auth commands say. {player}, {min}, {key}, {value}, {line}, {example} and {error} are filled in.
+# -------------------------------------------------------------------------------------------------
+Admin:
+  Starting: "&cAuthenticator is still starting, or failed to start (see the console). Try again in a moment."
+  No_Such_Account: "&c{player} has no account."
+  Unregistered: "&aRemoved the account of &f{player}&a."
+  Password_Changed: "&aChanged the password of &f{player}&a. Other addresses must type it again."
+  Force_Login_Done: "&a{player} is being logged in."
+  Force_Logout_Done: "&a{player} has to log in again."
+  Set_Premium_Done: "&a{player} is now an original account. They must reconnect."
+  Set_Cracked_Done: "&a{player} now has a password. They must reconnect and type it."
+  Premium_Account: "&c{player} has an original account, which has no password. Use /auth setcracked first."
+  Not_Premium_Account: "&c{player} has a password account. Use /auth setpremium instead."
+  Not_Online: "&c{player} is not connected to the network."
+  Already_Logged_In: "&c{player} is already logged in."
+  Not_Logged_In: "&c{player} is not logged in."
+  Lookup_Failed: "&cNo lookup service answered. Try again in a moment."
+  Not_Original_Name: "&cMojang knows no original account named {player}."
+  Conflict: "&cThe account changed while the command ran, or the Mojang account belongs to another one. Check with /auth info and try again."
+  Error: "&cSomething went wrong, see the console."
+  Weak_Too_Short: "&cThe password is too short (at least {min} characters)."
+  Weak_Too_Long: "&cThe password is too long (at most 72 bytes)."
+  Weak_Whitespace: "&cThe password cannot contain spaces."
+  Weak_Same_As_Name: "&cThe password cannot be the same as the name."
+  Weak_Forbidden: "&cThat password is too common."
+  Proxy_Told: "&7The proxy was told at once."
+  Proxy_Not_Told: "&7The proxy will notice within a few seconds."
+  Info_Header: "&6Account &f{player}"
+  Info_Line: "&7{key}: &f{value}"
+  Migrate_Started: "&7Reading the mineLogin accounts (they are never changed)..."
+  Migrate_Busy: "&cAn import is already running."
+  Migrate_Failed: "&cImport failed: {error}"
+  Migrate_Skipped: "&e  skipped {example}"
+  Status_Line: "&7{line}"
+
+# -------------------------------------------------------------------------------------------------
+# What the PlaceholderAPI placeholders show.
+# -------------------------------------------------------------------------------------------------
+Placeholders:
+  Loading: "loading"
+  # Not "Yes" and "No": YAML reads those words as true and false.
+  True_Text: "true"
+  False_Text: "false"
+  State_Unknown: "unknown"
+  State_Pending_Login: "pending_login"
+  State_Pending_Register: "pending_register"
+  State_Authenticated: "authenticated"
+
+# -------------------------------------------------------------------------------------------------
 # Internal versioning number
 # -------------------------------------------------------------------------------------------------
 Version: 1

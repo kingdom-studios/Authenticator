@@ -338,7 +338,7 @@ public final class AuthService {
 		try {
 			final Account account = session.account();
 
-			session.epoch(this.presence.save(session.uuid(), account == null ? null : account.id(), session.state(), session.method(), this.nodeId));
+			session.epoch(this.presence.save(session.uuid(), account == null ? null : account.id(), session.state(), session.method(), this.nodeId, session.epoch() + 1));
 
 		} catch (final SQLException | RuntimeException ex) {
 			this.logger.log(Level.WARNING, "Could not write the login state of " + session.username() + " to the database; servers may only learn it from a message: " + ex.getMessage());
