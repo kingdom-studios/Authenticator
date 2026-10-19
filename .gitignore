@@ -67,3 +67,6 @@ REBASE.bat
 
 # Place your proprietary software here, this won't get synced to remote 
 library/
+# Staging cluster: secrets and everything the containers write
+staging/.env
+staging/data/

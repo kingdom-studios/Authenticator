@@ -108,14 +108,14 @@ Database:
     Private:
       Host: "10.0.0.5"
       Port: 3306
-      User: "authenticator_backend"
+      User: "auth_backend"
       Password: ""
       Ssl_Mode: disable
       Properties: {}
     Public:
       Host: "db.example.com"
       Port: 3306
-      User: "authenticator_backend"
+      User: "auth_backend"
       Password: ""
       Ssl_Mode: verify-full
       Properties: {}

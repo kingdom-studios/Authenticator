@@ -382,8 +382,20 @@ i `epoch` połączenia tylko rośnie. Test: `BackendCoreIntegrationTest` (proxy 
   JVM-a. Wzór: `Sql.setInstant` i `Sql.instant` w `authenticator-common` oraz test z JVM-em ustawionym na `Pacific/Auckland`
   (sprawdza wartość zapisaną przez serwer, a nie odczyt przez ten sam kod). Dotknie też testów JustBans, które zakładają stary format.
 
-### Dalej: Etap 5 (testy i wdrożenie)
+### Etap 5 — przygotowany (artefakty, staging, runbook); sam staging jeszcze nie uruchomiony
 
-Zatrzymano się po Etapie 4. Zostaje staging (Velocity + Paper `AUTH` + Paper `GAME`, scenariusze z Etapu 5, w tym próby ataku: sfałszowane
-plugin messages, bezpośrednie połączenie z backendem, klienci 1.19.1+ z podpisanym czatem, burza botów), tryb shadow na produkcji obok
-mineLogin, import, przełączenie w oknie serwisowym i rollback.
+* **JAR-y sprawdzone** (`tools/check-jars.sh`, uruchamiany też przez `staging/prepare.sh`): w obu tylko `pl/kingdomcraft/authenticator/**`,
+  biblioteki przeniesione pod `pl.kingdomcraft.authenticator.libs.*` (Foundation: `.lib.*`), brak `paper-api`, `velocity-api`, `net.kyori.adventure`,
+  `slf4j`, Guice; poprawione: adnotacje (checkerframework, jetbrains, errorprone, jspecify) wykluczone, `net.kyori.option` przeniesione,
+  nieprzeniesione klasy `META-INF/versions/**` usunięte; deskryptory (`velocity-plugin.json`, `plugin.yml`) z właściwymi klasami głównymi.
+* **`staging/`**: `prepare.sh` (jary, sekrety, wyrenderowane konfiguracje, sprawdzone przez prawdziwe parsery) + `docker-compose.yml`
+  (MariaDB, Velocity, Paper `AUTH`, Paper `GAME`) + `README.md` + `CHECKLIST.md` (otwarte punkty z Etapu 3/4). **Nie był uruchomiony** (brak
+  Dockera): zmienne obrazów `itzg/*` i patch przekazywania Velocity są niesprawdzone, `staging/README.md` je wylicza.
+* **`docs/DEPLOYMENT.md`**: konta SQL (`auth_proxy` z `REQUIRE SSL`, `auth_backend`), tryb shadow obok mineLogin i czytanie porównania,
+  okno serwisowe z importem, przełączeniem i rollbackiem.
+* **JustBans**: poprawka `Sql.setInstant`/`Sql.instant` przeniesiona z testem (JustBans, gałąź `dev`, `2e68477`). Test z JVM-em w `Pacific/Auckland`
+  na starym kodzie zapisuje czas przesunięty o 12 godzin, na nowym przechodzi.
+
+### Dalej
+
+Uruchomić staging i przejść `staging/CHECKLIST.md`, potem shadow na produkcji (DEPLOYMENT.md, krok 2), potem okno serwisowe (krok 3).

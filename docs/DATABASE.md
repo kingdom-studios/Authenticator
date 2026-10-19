@@ -67,12 +67,12 @@ Create one account per role and pin each to the host it connects from.
 CREATE DATABASE authenticator CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 -- The proxy applies schema migrations, so it is the only account that may change tables.
-CREATE USER 'authenticator_proxy'@'<proxy public IP>' IDENTIFIED BY '<long random password>' REQUIRE SSL;
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER ON authenticator.* TO 'authenticator_proxy'@'<proxy public IP>';
+CREATE USER 'auth_proxy'@'<proxy public IP>' IDENTIFIED BY '<long random password>' REQUIRE SSL;
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER ON authenticator.* TO 'auth_proxy'@'<proxy public IP>';
 
 -- Paper servers only read and write rows. They check the schema version but never change the schema.
-CREATE USER 'authenticator_backend'@'10.0.0.%' IDENTIFIED BY '<another long random password>';
-GRANT SELECT, INSERT, UPDATE, DELETE ON authenticator.* TO 'authenticator_backend'@'10.0.0.%';
+CREATE USER 'auth_backend'@'10.0.0.%' IDENTIFIED BY '<another long random password>';
+GRANT SELECT, INSERT, UPDATE, DELETE ON authenticator.* TO 'auth_backend'@'10.0.0.%';
 ```
 
 Verified: with exactly these grants the proxy account applies all migrations over TLS, is refused without TLS, and the backend

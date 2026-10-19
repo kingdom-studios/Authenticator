@@ -66,3 +66,11 @@ without a server, with the real event and channel classes and stand-ins for play
 
 What these cannot show is how a real Velocity or Paper behaves (handler order between plugins, which events a client's plugin message
 raises, signed commands, `hidePlayer`). That is for the staging run (plan, Stage 5).
+
+## The jars
+
+`mvn package` and then `tools/check-jars.sh` look inside both plugin jars: only this project's packages and the relocated libraries
+(`pl.kingdomcraft.authenticator.libs.*`, Foundation in `.lib.*`), nothing the server provides (Paper, Velocity, Adventure, SLF4J), no
+unrelocated multi-release classes or service files, the right main classes, no unreplaced `${...}`, every resource present. The shaded jars
+were also run once outside a server: the MariaDB driver, the pool, the schema check, BCrypt and Argon2id, and the configs. The cluster to
+try them on is in [../staging](../staging/README.md); `prepare.sh` runs this check first.

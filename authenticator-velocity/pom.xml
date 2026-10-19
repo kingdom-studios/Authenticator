@@ -109,6 +109,11 @@
                             <exclude>com.velocitypowered:*</exclude>
                             <!-- Velocity injects its own org.slf4j.Logger; a second copy in this jar would be a different class. -->
                             <exclude>org.slf4j:slf4j-api</exclude>
+                            <!-- Annotations only: nothing reads them at run time, and they are hundreds of classes of clutter. -->
+                            <exclude>org.checkerframework:*</exclude>
+                            <exclude>org.jetbrains:annotations</exclude>
+                            <exclude>org.jspecify:*</exclude>
+                            <exclude>com.google.errorprone:*</exclude>
                         </excludes>
                     </artifactSet>
                     <filters>
@@ -119,7 +124,9 @@
                                 <exclude>META-INF/*.DSA</exclude>
                                 <exclude>META-INF/*.RSA</exclude>
                                 <exclude>META-INF/MANIFEST.MF</exclude>
-                                <exclude>META-INF/versions/*/module-info.class</exclude>
+                                <!-- MariaDB, Configurate and others are multi-release jars. Shade relocates their base classes but not the META-INF/versions
+                                     copies, and the manifest that would activate those is not carried over, so they would be dead, unrelocated files. -->
+                                <exclude>META-INF/versions/**</exclude>
                                 <exclude>module-info.class</exclude>
                             </excludes>
                         </filter>
@@ -163,6 +170,11 @@
                         <relocation>
                             <pattern>io.leangen.geantyref</pattern>
                             <shadedPattern>${shade.prefix}.geantyref</shadedPattern>
+                        </relocation>
+                        <!-- Configurate's own helper library, which Velocity's Adventure also ships: ours stays private so neither can meet the other's version. -->
+                        <relocation>
+                            <pattern>net.kyori.option</pattern>
+                            <shadedPattern>${shade.prefix}.option</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>com.password4j</pattern>
