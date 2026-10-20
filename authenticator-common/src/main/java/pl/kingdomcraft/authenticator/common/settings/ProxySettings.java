@@ -1,5 +1,6 @@
 package pl.kingdomcraft.authenticator.common.settings;
 
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -62,8 +63,16 @@ public record ProxySettings(String nodeId, DatabaseConfig database, BridgeConfig
 		messages = Map.copyOf(messages);
 	}
 
-	/** @param root the whole {@code config.yml} as a map */
+	/** As {@link #parse(Map, Path)}, with relative certificate paths relative to the working directory (for tests; the plugin passes its data folder). */
 	public static ProxySettings parse(Map<?, ?> root) {
+		return parse(root, Path.of(""));
+	}
+
+	/**
+	 * @param root          the whole {@code config.yml} as a map
+	 * @param dataDirectory the plugin's data folder, which a relative certificate path is relative to
+	 */
+	public static ProxySettings parse(Map<?, ?> root, Path dataDirectory) {
 		final ConfigSection section = ConfigSection.of("", root);
 		final String nodeId = section.requireString("node-id");
 
@@ -76,7 +85,7 @@ public record ProxySettings(String nodeId, DatabaseConfig database, BridgeConfig
 		final ConfigSection audit = section.section("audit");
 
 		try {
-			final ProxySettings settings = new ProxySettings(nodeId, DatabaseConfig.parse(database, Zone.PUBLIC), BridgeConfig.parse(section, Zone.PUBLIC), LoginSettings.parse(orEmpty(section, "login")),
+			final ProxySettings settings = new ProxySettings(nodeId, DatabaseConfig.parse(database, Zone.PUBLIC, dataDirectory), BridgeConfig.parse(section, Zone.PUBLIC), LoginSettings.parse(orEmpty(section, "login")),
 					RoutingSettings.parse(orEmpty(section, "routing")), PremiumSettings.parse(orEmpty(section, "premium")), LimitSettings.parse(orEmpty(section, "limits")),
 					PasswordSettings.parse(orEmpty(section, "passwords")), audit == null ? 90 : audit.integer("retention-days", 90),
 					minelogin == null ? new MineLoginSource("", "mineLogin") : new MineLoginSource(minelogin.string("schema", ""), minelogin.string("table", "mineLogin")), section.bool("dry-run", false),

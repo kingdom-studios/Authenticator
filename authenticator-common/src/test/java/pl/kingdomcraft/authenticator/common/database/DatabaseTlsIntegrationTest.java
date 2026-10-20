@@ -97,6 +97,22 @@ class DatabaseTlsIntegrationTest {
 		}
 	}
 
+	/** What an admin writes: a plain path in {@code server-ssl-cert}, absolute or relative to the plugin's folder. */
+	@Test
+	void aPlainPathInServerSslCertIsEnoughForVerifyCa() throws Exception {
+		final TestMariaDb.Server server = TestMariaDb.requireServer();
+		final Path cert = Path.of(env("AUTHENTICATOR_TEST_MARIADB_CERT")).toAbsolutePath();
+
+		for (final String written : new String[] { cert.toString(), cert.getFileName().toString() }) {
+			final java.util.Map<String, Object> endpoint = Map.of("host", server.host(), "port", server.port(), "user", server.user(), "password", server.password(), "ssl-mode", "verify-ca", "server-ssl-cert", written);
+			final DatabaseEndpoint parsed = DatabaseEndpoint.parse(Zone.PUBLIC, pl.kingdomcraft.authenticator.common.config.ConfigSection.of("database.endpoints.public", endpoint), cert.getParent());
+
+			try (TestMariaDb.Schema schema = TestMariaDb.createSchema(false); Database database = Database.connect(new DatabaseConfig(schema.name(), new ZonedEndpoints<>(Zone.PUBLIC, List.of(), Map.of(Zone.PUBLIC, parsed)), 2, 3_000), LOGGER)) {
+				assertFalse(cipher(database).isEmpty(), written);
+			}
+		}
+	}
+
 	@Test
 	void verifyFullAcceptsAHostNameInTheCertificate() throws Exception {
 		final TestMariaDb.Server server = at(TestMariaDb.requireServer(), "localhost");

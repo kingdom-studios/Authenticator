@@ -1,5 +1,6 @@
 package pl.kingdomcraft.authenticator.common.settings;
 
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -28,8 +29,13 @@ public record BackendSettings(String nodeId, DatabaseConfig database, BridgeConf
 			throw new IllegalArgumentException("node-id must be 1-64 letters, digits, '.', '_' or '-'");
 	}
 
-	/** @param root the whole {@code settings.yml} as a map */
+	/** As {@link #parse(Map, Path)}, with relative certificate paths relative to the working directory (for tests; the plugin passes its data folder). */
 	public static BackendSettings parse(Map<?, ?> root) {
+		return parse(root, Path.of(""));
+	}
+
+	/** @param root the whole {@code settings.yml} as a map */
+	public static BackendSettings parse(Map<?, ?> root, Path dataDirectory) {
 		final ConfigSection section = ConfigSection.of("", root);
 		final ConfigSection database = section.section("database");
 
@@ -40,7 +46,7 @@ public record BackendSettings(String nodeId, DatabaseConfig database, BridgeConf
 		final ConfigSection minelogin = migration == null ? null : migration.section("minelogin");
 
 		try {
-			return new BackendSettings(section.requireString("node-id"), DatabaseConfig.parse(database, Zone.PRIVATE), BridgeConfig.parse(section, Zone.PRIVATE), PremiumSettings.parse(orEmpty(section, "premium")),
+			return new BackendSettings(section.requireString("node-id"), DatabaseConfig.parse(database, Zone.PRIVATE, dataDirectory), BridgeConfig.parse(section, Zone.PRIVATE), PremiumSettings.parse(orEmpty(section, "premium")),
 					PasswordSettings.parse(orEmpty(section, "passwords")), minelogin == null ? new MineLoginSource("", "mineLogin") : new MineLoginSource(minelogin.string("schema", ""), minelogin.string("table", "mineLogin")));
 
 		} catch (final IllegalArgumentException ex) {

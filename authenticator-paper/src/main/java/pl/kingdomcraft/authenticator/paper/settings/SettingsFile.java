@@ -30,7 +30,7 @@ public final class SettingsFile {
 			if (!(root instanceof Map<?, ?> map))
 				throw new ConfigException(file.getFileName() + " is empty. Delete it to get the default back, then restart.");
 
-			return BackendSettings.parse(map);
+			return BackendSettings.parse(map, file.toAbsolutePath().getParent());
 		}
 	}
 }

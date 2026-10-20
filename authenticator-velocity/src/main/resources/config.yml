@@ -17,8 +17,15 @@ language: pl
 #   ssl-mode   - disable | trust | verify-ca | verify-full.
 #                "disable" is not allowed on the public endpoint, which crosses an untrusted network.
 #                trust encrypts but does not check the certificate; verify-full checks chain and host name.
-#   properties - extra driver options. Files must be given as a URI, e.g.
-#                serverSslCert: "file:///etc/authenticator/db-ca.pem"   (a bare path does not work)
+#   server-ssl-cert - optional. The CA certificate (.pem) the database server's certificate is checked against, for a
+#                server whose certificate is not signed by a CA Java already trusts (a self-signed or private CA;
+#                without it MariaDB fails with "Self signed certificates. Either set sslMode=trust ..."). Write a normal
+#                path: absolute (/home/minecraft/plugins/authenticator/db-ca.pem) or relative to this plugin's folder
+#                (db-ca.pem). It is turned into the file:/// URL the driver needs. A value that already starts with
+#                file:, classpath: or -----BEGIN CERTIFICATE----- is used as written. A file that is missing or cannot
+#                be read stops the plugin from starting, and says which path. Empty: not used.
+#   properties - extra driver options, e.g. serverCertificate or tcpKeepAlive. serverSslCert here works like
+#                server-ssl-cert above (the same path conversion); if both are set, server-ssl-cert wins.
 #
 # The proxy is the only node that changes the schema, so its database user needs CREATE and ALTER on top of
 # SELECT, INSERT, UPDATE and DELETE. See docs/DATABASE.md.
@@ -35,6 +42,7 @@ database:
       user: auth_proxy
       password: ""
       ssl-mode: verify-full
+      server-ssl-cert: ""
       properties: {}
     private:
       host: 10.0.0.5
@@ -42,6 +50,7 @@ database:
       user: auth_proxy
       password: ""
       ssl-mode: disable
+      server-ssl-cert: ""
       properties: {}
 
 # How the proxy and the backend servers tell each other about a player's login state. In every mode the database

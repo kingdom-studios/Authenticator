@@ -1,5 +1,7 @@
 package pl.kingdomcraft.authenticator.common.database;
 
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -44,12 +46,44 @@ public record DatabaseEndpoint(String host, int port, String user, String passwo
 			throw new IllegalArgumentException("invalid host '" + host + "'");
 	}
 
-	/** TLS is the default for the public address and off for the private one. */
-	public static DatabaseEndpoint parse(Zone zone, ConfigSection section) {
+	/**
+	 * TLS is the default for the public address and off for the private one.
+	 *
+	 * <p>{@code server-ssl-cert} is the CA certificate the server's certificate is checked against; it is another way to write
+	 * {@code properties.serverSslCert} and wins over it. A plain path is turned into the URL the driver wants, see {@link CertificateLocation}.
+	 *
+	 * @param dataDirectory what a relative certificate path is relative to
+	 */
+	public static DatabaseEndpoint parse(Zone zone, ConfigSection section, Path dataDirectory) {
 		final SslMode defaultMode = zone == Zone.PUBLIC ? SslMode.VERIFY_FULL : SslMode.DISABLE;
 
+		final Map<String, String> properties = new LinkedHashMap<>();
+		String certificate = null;
+		String certificateKey = section.path("properties");
+
+		for (final Map.Entry<String, String> option : section.stringMap("properties").entrySet())
+			if (CertificateLocation.isOption(option.getKey())) {
+				certificate = option.getValue();
+				certificateKey = section.path("properties") + "." + option.getKey();
+
+			} else
+				properties.put(option.getKey(), option.getValue());
+
+		if (!section.string("server-ssl-cert", "").isBlank()) {
+			certificate = section.string("server-ssl-cert", "");
+			certificateKey = section.path("server-ssl-cert");
+		}
+
+		if (certificate != null && !certificate.isBlank())
+			properties.put(CertificateLocation.OPTION, CertificateLocation.normalize(certificateKey, certificate, dataDirectory));
+
 		return new DatabaseEndpoint(section.requireString("host"), section.integer("port", 3306), section.requireString("user"), section.string("password", ""),
-				SslMode.parse(section.path("ssl-mode"), section.string("ssl-mode", defaultMode.driverValue())), section.stringMap("properties"));
+				SslMode.parse(section.path("ssl-mode"), section.string("ssl-mode", defaultMode.driverValue())), properties);
+	}
+
+	/** As {@link #parse(Zone, ConfigSection, Path)}, with relative certificate paths relative to the working directory (for tests). */
+	public static DatabaseEndpoint parse(Zone zone, ConfigSection section) {
+		return parse(zone, section, Path.of(""));
 	}
 
 	/** {@code host:port} for logs; never includes the password. */

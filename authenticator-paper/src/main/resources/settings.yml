@@ -92,8 +92,15 @@ Login_Spawn:
 #   Ssl_Mode  - disable | trust | verify-ca | verify-full.
 #               "disable" is not allowed on the public endpoint, which crosses an untrusted network.
 #               trust encrypts but does not check the certificate; verify-full checks chain and host name.
-#   Properties - extra driver options. Files must be given as a URI, e.g.
-#               serverSslCert: "file:///etc/authenticator/db-ca.pem"   (a bare path does not work)
+#   Server_Ssl_Cert - optional. The CA certificate (.pem) the database server's certificate is checked against, for a
+#               server whose certificate is not signed by a CA Java already trusts (a self-signed or private CA;
+#               without it MariaDB fails with "Self signed certificates. Either set sslMode=trust ..."). Write a normal
+#               path: absolute (/home/minecraft/plugins/Authenticator/db-ca.pem) or relative to this plugin's folder
+#               (db-ca.pem). It is turned into the file:/// URL the driver needs. A value that already starts with
+#               file:, classpath: or -----BEGIN CERTIFICATE----- is used as written. A file that is missing or cannot
+#               be read stops the plugin from starting, and says which path. Empty: not used.
+#   Properties - extra driver options. serverSslCert here works like Server_Ssl_Cert above (the same path conversion);
+#               if both are set, Server_Ssl_Cert wins.
 #
 # Paper servers never change the schema: they only check that it is the version this build needs.
 # The proxy applies migrations, so start it first after an update.
@@ -111,6 +118,7 @@ Database:
       User: "auth_backend"
       Password: ""
       Ssl_Mode: disable
+      Server_Ssl_Cert: ""
       Properties: {}
     Public:
       Host: "db.example.com"
@@ -118,6 +126,7 @@ Database:
       User: "auth_backend"
       Password: ""
       Ssl_Mode: verify-full
+      Server_Ssl_Cert: ""
       Properties: {}
 
 # -------------------------------------------------------------------------------------------------

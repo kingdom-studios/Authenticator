@@ -37,7 +37,7 @@ public final class ConfigLoader {
 		if (!(raw instanceof Map<?, ?> map))
 			throw new ConfigException(FILE + " is empty. Delete it to get the default back, then restart.");
 
-		return ProxySettings.parse(map);
+		return ProxySettings.parse(map, file.toAbsolutePath().getParent());
 	}
 
 	/** Copies a bundled resource into the data folder if the file does not exist yet, so admins get the commented default. */

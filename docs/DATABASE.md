@@ -39,15 +39,19 @@ so both styles mean the same thing. A test loads both samples through the real p
 
 * `trust` encrypts but does not check the certificate (protects against sniffing, not against a man in the middle).
 * `verify-ca` checks the certificate chain; `verify-full` also checks that the certificate is valid for `host`.
-* For a certificate from your own CA, give it to the driver with `properties`. **It must be a URI**, not a path:
+* For a certificate from your own CA (or a self-signed one; without it the driver fails with `Self signed certificates. Either set
+  sslMode=trust ...`), give the CA file in `server-ssl-cert` (`Server_Ssl_Cert` on Paper) as an ordinary path:
 
   ```yaml
-  properties:
-    serverSslCert: "file:///etc/authenticator/db-ca.pem"
+  ssl-mode: verify-full
+  server-ssl-cert: "/home/minecraft/plugins/authenticator/db-ca.pem"   # or just "db-ca.pem", in the plugin's folder
   ```
 
-  A bare path fails with `URI is not absolute`. Option values are passed to the driver unchanged (it does not decode them),
-  so a value containing `&` or a control character is rejected.
+  The plugin turns it into the `file:///...` URL the driver needs. A relative path is looked for in the plugin's data folder. A value that
+  already starts with `file:`, `classpath:` or `-----BEGIN CERTIFICATE-----` is passed on as written. A file that does not exist or cannot be
+  read stops the plugin at startup with the exact path. `properties.serverSslCert` gets the same treatment; if both are set,
+  `server-ssl-cert` wins. Other option values are passed to the driver unchanged (it does not decode them), so a value containing `&` or a
+  control character is rejected.
 
 Verified against a real server: `trust` encrypts; `verify-ca` accepts the server's own certificate and rejects another one;
 `verify-full` accepts a host name that is in the certificate and rejects one that is not.

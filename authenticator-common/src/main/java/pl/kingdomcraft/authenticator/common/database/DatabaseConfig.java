@@ -1,5 +1,6 @@
 package pl.kingdomcraft.authenticator.common.database;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -42,12 +43,23 @@ public record DatabaseConfig(String database, ZonedEndpoints<DatabaseEndpoint> z
 			throw new IllegalArgumentException("the public endpoint crosses an untrusted network, so ssl-mode 'disable' is not allowed there (use trust, verify-ca or verify-full)");
 	}
 
+	/** As {@link #parse(ConfigSection, Zone, Path)}, with relative certificate paths relative to the working directory (for tests). */
+	public static DatabaseConfig parse(ConfigSection section, Zone defaultUse) {
+		return parse(section, defaultUse, Path.of(""));
+	}
+
+	/** As {@link #parse(Map, Zone, Path)}, with relative certificate paths relative to the working directory (for tests). */
+	public static DatabaseConfig parse(Map<?, ?> database, Zone defaultUse) {
+		return parse(database, defaultUse, Path.of(""));
+	}
+
 	/**
 	 * @param section    the {@code database} section
 	 * @param defaultUse zone used when the file has no {@code use} key: the proxy passes {@link Zone#PUBLIC}, backend servers {@link Zone#PRIVATE}
+	 * @param dataDirectory the plugin's data folder, which a relative certificate path is relative to
 	 */
-	public static DatabaseConfig parse(ConfigSection section, Zone defaultUse) {
-		final ZonedEndpoints<DatabaseEndpoint> zones = ZonedEndpoints.parse(section, defaultUse, (zone, endpoint) -> parseEndpoint(zone, endpoint));
+	public static DatabaseConfig parse(ConfigSection section, Zone defaultUse, Path dataDirectory) {
+		final ZonedEndpoints<DatabaseEndpoint> zones = ZonedEndpoints.parse(section, defaultUse, (zone, endpoint) -> parseEndpoint(zone, endpoint, dataDirectory));
 
 		try {
 			return new DatabaseConfig(section.requireString("name"), zones, section.integer("pool-size", 6), section.integer("connection-timeout-ms", 10_000));
@@ -57,13 +69,13 @@ public record DatabaseConfig(String database, ZonedEndpoints<DatabaseEndpoint> z
 		}
 	}
 
-	public static DatabaseConfig parse(Map<?, ?> database, Zone defaultUse) {
-		return parse(ConfigSection.of("database", database), defaultUse);
+	public static DatabaseConfig parse(Map<?, ?> database, Zone defaultUse, Path dataDirectory) {
+		return parse(ConfigSection.of("database", database), defaultUse, dataDirectory);
 	}
 
-	private static DatabaseEndpoint parseEndpoint(Zone zone, ConfigSection section) {
+	private static DatabaseEndpoint parseEndpoint(Zone zone, ConfigSection section, Path dataDirectory) {
 		try {
-			return DatabaseEndpoint.parse(zone, section);
+			return DatabaseEndpoint.parse(zone, section, dataDirectory);
 
 		} catch (final IllegalArgumentException ex) {
 			throw new ConfigException(section.path() + ": " + ex.getMessage(), ex);
