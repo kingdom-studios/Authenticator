@@ -19,6 +19,20 @@ servers. It is the only place a decision is made: a Paper server only checks tha
    accounts only.
 4. Restart. `/authadmin status` shows the node, the database endpoint, the bridge and who is online.
 
+## What the console shows
+
+Every successful login is logged once, with the method and the address:
+
+```
+Steve logged in successfully (method: password) from 203.0.113.7.
+Steve logged in successfully (method: password, new account registered) from 203.0.113.7.
+Alex logged in successfully (method: session, returned from the address of an earlier login) from 203.0.113.7.
+Notch logged in successfully (method: premium account, confirmed by Mojang) from 203.0.113.7.
+Steve logged in successfully (method: forced by an admin) from 203.0.113.7.
+```
+
+Wrong passwords and refused connections are in the `auth_audit` table.
+
 ## Updating the config
 
 When a new version has new keys, `config.yml` is brought up to date at startup: the keys that are missing are added with their comments,

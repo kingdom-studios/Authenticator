@@ -278,6 +278,7 @@ public final class AuthService {
 		final PlayerSession session = this.newSession(uuid, username, address, true, AuthState.AUTHENTICATED, AuthMethod.PREMIUM, account);
 
 		this.publish(session);
+		this.logLogin(session, "premium account, confirmed by Mojang");
 		this.bestEffort(() -> this.audit.log(Event.LOGIN_SUCCESS, uuid, username, address, null, this.nodeId, "premium"));
 
 		return new Opened(session, null);
@@ -305,6 +306,7 @@ public final class AuthService {
 			final PlayerSession session = this.newSession(uuid, username, address, false, AuthState.AUTHENTICATED, AuthMethod.SESSION, account);
 
 			this.publish(session);
+			this.logLogin(session, "session, returned from the address of an earlier login");
 			this.bestEffort(() -> this.audit.log(Event.LOGIN_SUCCESS, uuid, username, address, null, this.nodeId, "session"));
 
 			return new Opened(session, null);
@@ -331,6 +333,11 @@ public final class AuthService {
 		this.sessions.remove(session);
 
 		this.bestEffort(() -> this.presence.deleteIfUnchanged(session.uuid(), session.epoch()));
+	}
+
+	/** One console line per successful login: who, how, and from where. */
+	private void logLogin(PlayerSession session, String method) {
+		this.logger.info(session.username() + " logged in successfully (method: " + method + ") from " + session.address().getHostAddress() + ".");
 	}
 
 	/** Writes the state to the database, then tells the platform. Never throws: the database being down must not break a login that already succeeded. */
@@ -398,6 +405,7 @@ public final class AuthService {
 		}
 
 		this.finishLogin(session, AuthMethod.PASSWORD, account);
+		this.logLogin(session, "password, new account registered");
 		this.bestEffort(() -> this.audit.log(Event.REGISTER, session.uuid(), session.username(), session.address(), null, this.nodeId, null));
 
 		return Result.of(Outcome.OK);
@@ -444,6 +452,7 @@ public final class AuthService {
 	private Result loginSucceeded(PlayerSession session, Account account, String password) throws SQLException {
 		this.wrongPasswords.reset(session.address());
 		this.finishLogin(session, AuthMethod.PASSWORD, account);
+		this.logLogin(session, "password");
 		this.bestEffort(() -> this.audit.log(Event.LOGIN_SUCCESS, session.uuid(), session.username(), session.address(), null, this.nodeId, "password"));
 
 		if (account.hashAlgo() == null || this.hasher.needsRehash(account.hashAlgo(), account.passwordHash()))
@@ -660,6 +669,7 @@ public final class AuthService {
 
 			session.authenticate(AuthMethod.FORCED, account);
 			this.publish(session);
+			this.logLogin(session, "forced by an admin");
 
 		} catch (final SQLException | RuntimeException ex) {
 			this.logger.log(Level.WARNING, "Could not apply a forced login to " + session.username() + ": " + ex.getMessage());
