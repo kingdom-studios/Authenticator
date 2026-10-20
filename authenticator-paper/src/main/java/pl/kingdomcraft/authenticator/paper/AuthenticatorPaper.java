@@ -42,6 +42,15 @@ public final class AuthenticatorPaper extends SimplePlugin {
 	/** When a frozen player was last reminded, to keep the reminders from becoming spam. */
 	private static final Map<UUID, Long> REMINDED = new ConcurrentHashMap<>();
 
+	/**
+	 * Runs before Foundation reads settings.yml: a file from an older version gets the new keys, with their comments, and keeps every
+	 * value the admin set; the old file is saved as settings.yml.bak. A failure here is logged and the file is read as it is.
+	 */
+	@Override
+	protected void onPluginLoad() {
+		SettingsFile.update(this.getDataFolder().toPath(), this.getResource("settings.yml"), this.getLogger()::info, this.getLogger()::warning);
+	}
+
 	@Override
 	protected void onPluginStart() {
 		freezer = new Freezer(this, GATE);

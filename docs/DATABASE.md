@@ -53,7 +53,7 @@ so both styles mean the same thing. A test loads both samples through the real p
   `server-ssl-cert` wins. Other option values are passed to the driver unchanged (it does not decode them), so a value containing `&` or a
   control character is rejected.
 
-Verified against a real server: `trust` encrypts; `verify-ca` accepts the server's own certificate and rejects another one;
+Behaviour with a real server: `trust` encrypts; `verify-ca` accepts the server's own certificate and rejects another one;
 `verify-full` accepts a host name that is in the certificate and rejects one that is not.
 
 ### TLS to Redis

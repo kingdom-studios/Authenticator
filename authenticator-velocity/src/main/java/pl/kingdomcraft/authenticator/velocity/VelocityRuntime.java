@@ -71,6 +71,7 @@ public final class VelocityRuntime implements AutoCloseable {
 		final Logger logger = Slf4jHandler.bridge("Authenticator", slf4j);
 
 		ConfigLoader.ensureDefault(dataDirectory, "config.yml");
+		ConfigLoader.update(dataDirectory, "config.yml", logger::info);
 
 		final ProxySettings settings = ConfigLoader.load(dataDirectory.resolve("config.yml"));
 

@@ -9,7 +9,7 @@ passes on a bare machine.
 
 | Needs | Provided by | Without it |
 |---|---|---|
-| MariaDB 10.11+ | `AUTHENTICATOR_TEST_MARIADB=host:port:user:password` | 252 of the 503 tests in authenticator-common are skipped |
+| MariaDB 10.11+ | `AUTHENTICATOR_TEST_MARIADB=host:port:user:password` | about half of the tests in authenticator-common are skipped |
 | Redis 7 | `redis-server` on the `PATH` (a throwaway process on a random port is started per test class) | the Redis tests are skipped |
 | Redis with TLS | the above plus `openssl` and `keytool` (a self-signed certificate is generated per test) | the TLS tests are skipped |
 | MariaDB with TLS | `AUTHENTICATOR_TEST_MARIADB_CERT` and `AUTHENTICATOR_TEST_MARIADB_OTHER_CERT` | the TLS tests are skipped |
@@ -65,7 +65,7 @@ without a server, with the real event and channel classes and stand-ins for play
   `JoinVerifier`, `Gate`, `AdminService`.
 
 What these cannot show is how a real Velocity or Paper behaves (handler order between plugins, which events a client's plugin message
-raises, signed commands, `hidePlayer`). That is for the staging run (plan, Stage 5).
+raises, signed commands, `hidePlayer`). Try those on the [staging cluster](../staging/README.md) before a release.
 
 ## The jars
 

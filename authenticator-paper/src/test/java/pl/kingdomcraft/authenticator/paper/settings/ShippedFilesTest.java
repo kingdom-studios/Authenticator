@@ -172,4 +172,24 @@ class ShippedFilesTest {
 	void polishDiacriticsSurviveInTheFile() throws IOException {
 		assertTrue(Files.readString(PL, StandardCharsets.UTF_8).contains("Najpierw się zaloguj"));
 	}
+
+	@Test
+	void anOldSettingsFileIsBroughtUpToDateBeforeFoundationReadsIt(@TempDir Path directory) throws IOException {
+		final Path file = directory.resolve("settings.yml");
+		final java.util.List<String> log = new java.util.ArrayList<>();
+
+		Files.writeString(file, Files.readString(SETTINGS, StandardCharsets.UTF_8).replace("Secret: \"\"", "Secret: \"0123456789abcdef-test-secret\"").replace("      Server_Ssl_Cert: \"\"\n", ""), StandardCharsets.UTF_8);
+
+		SettingsFile.update(directory, ShippedFilesTest.class.getResourceAsStream("/settings.yml"), log::add, log::add);
+
+		final String updated = Files.readString(file, StandardCharsets.UTF_8);
+
+		assertTrue(updated.contains("Server_Ssl_Cert: \"\""), log.toString());
+		assertTrue(updated.contains("Secret: \"0123456789abcdef-test-secret\""));
+		assertTrue(Files.exists(directory.resolve("settings.yml.bak")));
+		assertEquals("paper-1", SettingsFile.load(file).nodeId());
+
+		SettingsFile.update(directory, null, log::add, log::add); // no bundled file: nothing happens, nothing throws
+		SettingsFile.update(directory.resolve("nowhere"), ShippedFilesTest.class.getResourceAsStream("/settings.yml"), log::add, log::add);
+	}
 }

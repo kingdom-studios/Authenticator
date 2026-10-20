@@ -8,7 +8,7 @@ staging/prepare.sh        # builds the jars if missing, checks them, writes .env
 cd staging && docker compose up
 ```
 
-Connect a Minecraft client (online mode) to `localhost:25565` and work through [CHECKLIST.md](CHECKLIST.md). `prepare.sh --reset` throws
+Connect a Minecraft client to `localhost:25565` (scenarios below). `prepare.sh --reset` throws
 everything away (data, secrets) and starts from nothing; `docker compose down` keeps it.
 
 Needs Docker with the compose plugin, Maven and a JDK 25 (to build), `unzip`, `awk`.
@@ -29,20 +29,29 @@ renamed), so what you test is the config you will deploy. They are checked to lo
 
 * **Import**: the database holds a stand-in `mineLogin` table with `OldPlayer` (password `hunter2`, BCrypt).
   `docker compose exec velocity rcon-cli authadmin migrate minelogin dry-run`, then without `dry-run`; join as `OldPlayer` with a
-  non-premium client (or use the checklist's offline-client trick) and `/login hunter2`.
+  non-premium client (an offline-mode test client) and `/login hunter2`.
 * **Shadow mode**: set `dry-run: true` and `bridge.mode: database-only` in `data/velocity/plugins/authenticator/config.yml`, restart the
   proxy; see [DEPLOYMENT.md](../docs/DEPLOYMENT.md) step 2 for what to look at.
 * **Look in the database**: `mariadb -h127.0.0.1 -P3307 -uroot -p"$DB_ROOT_PASSWORD" authenticator` (the password is in `.env`).
 
-## Not verified
+* **Premium and non-premium players**: a real account goes straight to `game`; a non-premium name is frozen on `auth` until `/register` or
+  `/login`; wrong passwords kick and then block the address; `/premium` and `/cracked` switch an account's type.
+* **Signed commands**: `/login` and `/register` from a 1.19.1+ client must not be kicked for chat validation.
+* **Going around the proxy**: a direct connection to a Paper server (publish its port temporarily) is refused, and so is a name the proxy
+  has no record of entering `paper-game`.
+* **Admin commands**: `/auth forcelogin`, `/auth forcelogout`, `/auth setpremium`, `/auth setcracked` act within the proxy's
+  `bridge.database-poll-seconds`.
+* **Failures**: stop `mariadb` (new connections are refused politely, players already online keep playing, everything recovers when it is
+  back); restart the proxy with players online; restart `paper-auth` while a player waits.
+* **Certificate options and config updates**: put an older `config.yml` / `settings.yml` into `data/` and restart; the new keys appear, your
+  values stay, and the old file is saved as `*.bak`.
 
-This kit has been written and its configs validated, but **it has never been started**: there was no Docker in the place it was written.
-The parts that depend on the container images are guesses to check on the first run:
+## Notes
 
-* the `itzg/minecraft-server` variables (`TYPE=PAPER`, `VERSION`, `CFG_VELOCITY_SECRET`) and the `patches/velocity-forwarding.json` that
-  switches on Velocity forwarding in `paper-global.yml`; if the Paper servers refuse the proxy ("unable to verify player details"), the
-  forwarding secret did not arrive: set it by hand in `data/paper-*/config/paper-global.yml`;
-* the `itzg/mc-proxy` image reading `data/velocity/velocity.toml` as it is (it may rewrite parts of it from its environment);
-* Paper 26.2 and Java 25 being available as image tags (`PAPER_VERSION` in `.env` changes the version).
+The images are third-party, so a variable can change between their versions:
 
-Whatever you have to change, tell me, and the kit is changed with it.
+* the `itzg/minecraft-server` variables (`TYPE=PAPER`, `VERSION`, `CFG_VELOCITY_SECRET`) and `patches/velocity-forwarding.json`, which
+  switches on Velocity forwarding in `paper-global.yml`; if a Paper server refuses the proxy ("unable to verify player details"), set the
+  forwarding secret by hand in `data/paper-*/config/paper-global.yml`;
+* the `itzg/mc-proxy` image reads `data/velocity/velocity.toml` as it is, but may rewrite parts of it from its environment;
+* Paper 26.2 and Java 25 must exist as image tags (`PAPER_VERSION` in `.env` changes the version).

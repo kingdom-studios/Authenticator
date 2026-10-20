@@ -124,4 +124,4 @@ paper paper-game GAME ""
 
 echo
 echo "Ready. Start the cluster with:   cd staging && docker compose up"
-echo "Then connect a Minecraft client to localhost:25565 and work through staging/CHECKLIST.md."
+echo "Then connect a Minecraft client to localhost:25565 and try the scenarios in staging/README.md."

@@ -19,6 +19,14 @@ servers. It is the only place a decision is made: a Paper server only checks tha
    accounts only.
 4. Restart. `/authadmin status` shows the node, the database endpoint, the bridge and who is online.
 
+## Updating the config
+
+When a new version has new keys, `config.yml` is brought up to date at startup: the keys that are missing are added with their comments,
+every value you set stays (including your own entries in `database.endpoints.*.properties` and `messages`), and the old file is saved as
+`config.yml.bak` (`.bak.1`, ... if a backup is already there). The log says what was added. A key that the new version no longer has is not
+carried over (it is named in the log and is in the backup). A file that is already complete is not touched. `config-version` is
+maintained by the plugin; leave it as it is.
+
 ## Commands
 
 | Command | Who | What |

@@ -3,7 +3,7 @@
 Three steps, each of which can be stopped at without harm to the one before. Nothing here changes mineLogin's table, so going back is always
 possible (see "Rollback").
 
-Before anything: try the whole thing on [the staging cluster](../staging/README.md) and tick off [its checklist](../staging/CHECKLIST.md).
+Before anything, try the whole procedure on [the staging cluster](../staging/README.md).
 
 Names used below: the database is `authenticator`, the proxy's address is `<proxy-ip>`, the Paper servers are in `10.0.0.0/24`.
 
@@ -65,7 +65,7 @@ player: no kicks, no routing, no commands, no bridge. Only the proxy gets the pl
   Shadow mode disagreement: <name>: Authenticator would ... , mineLogin ...
   ```
   Search with `grep "Shadow mode disagreement" logs/latest.log`.
-* Every difference is either a bug here or a bug (or a fix) there. Typical, and fine: a name mineLogin lets in that does not match
+* Every difference is either a difference in the rules or a bug on one side. Typical, and fine: a name mineLogin lets in that does not match
   `login.nickname-regex`; a name that differs only in letter case. Not fine: a premium player Authenticator would send through a password
   prompt, a non-premium name it would refuse as "original", a UUID that differs for an existing account. Open an issue for each of those
   with the log line.
@@ -116,7 +116,7 @@ What is different afterwards, and what is not:
 
 * **Accounts registered after the switch** are only in Authenticator's tables, not in mineLogin's. Their passwords are BCrypt, which
   mineLogin also understands, so they can be **copied back** into the mineLogin table by hand if you want them to keep playing: a row in
-  `authenticator.auth_accounts` becomes one in `mineLogin` with `hashType = 'BCRYPT'` (ask for the statement; it depends on your mineLogin
+  `authenticator.auth_accounts` becomes one in `mineLogin` with `hashType = 'BCRYPT'` (the exact statement depends on your mineLogin
   version). Without that, those players register again.
 * Passwords changed after the switch are not reflected in mineLogin's table.
 * If the switch itself went wrong in the database (a bad migration), restore the dump from step 2; the `authenticator` database can also

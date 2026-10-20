@@ -23,6 +23,13 @@ record from doing anything.
 
 Until the plugin has read the database nobody gets in: a server that is starting, or whose database is down, is closed rather than open.
 
+## Updating the settings
+
+When a new version has new keys, `settings.yml` is brought up to date before the plugin reads it: missing keys are added with their
+comments, every value you set stays (your `Properties` entries included), and the old file is saved as `settings.yml.bak` (`.bak.1`, ... if
+one exists). The log says what was added; a key the new version no longer has is named there and stays in the backup. A complete file is
+not touched. Leave `Version` as it is.
+
 ## The two roles
 
 | | `AUTH` (the waiting server) | `GAME` |
@@ -117,5 +124,3 @@ they show `loading`. The words are in the messages file (`Placeholders`).
 * No 2FA, no captcha, no e-mail or password recovery: an admin sets a new password.
 * No Bedrock players.
 * The gate does not kick on a timeout: the proxy does.
-* The plugin has been compiled against the real Paper API and Foundation and its logic tested on a real database, but it has **not yet been
-  run on a real Paper server**: see the plan, "Czego jeszcze nie zweryfikowano".

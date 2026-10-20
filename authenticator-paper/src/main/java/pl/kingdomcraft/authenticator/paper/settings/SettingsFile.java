@@ -10,6 +10,7 @@ import java.util.Map;
 import org.yaml.snakeyaml.Yaml;
 
 import pl.kingdomcraft.authenticator.common.config.ConfigException;
+import pl.kingdomcraft.authenticator.common.config.ConfigUpdater;
 import pl.kingdomcraft.authenticator.common.settings.BackendSettings;
 
 /**
@@ -20,6 +21,22 @@ import pl.kingdomcraft.authenticator.common.settings.BackendSettings;
 public final class SettingsFile {
 
 	private SettingsFile() {
+	}
+
+	/**
+	 * Brings an existing settings.yml up to the layout of the bundled one, see {@link ConfigUpdater}. Never throws: if the update fails
+	 * the file stays as it was and is read as it is.
+	 */
+	public static void update(Path dataFolder, java.io.InputStream bundled, java.util.function.Consumer<String> info, java.util.function.Consumer<String> warning) {
+		if (bundled == null)
+			return;
+
+		try (java.io.InputStream stream = bundled) {
+			ConfigUpdater.update(dataFolder.resolve("settings.yml"), new String(stream.readAllBytes(), StandardCharsets.UTF_8), "Version", info);
+
+		} catch (final IOException | RuntimeException ex) {
+			warning.accept("Could not update settings.yml to the layout of this version (" + ex + "); it is used as it is.");
+		}
 	}
 
 	/** @throws ConfigException with a message an admin can act on */

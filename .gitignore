@@ -70,3 +70,6 @@ library/
 # Staging cluster: secrets and everything the containers write
 staging/.env
 staging/data/
+
+# Closed-source reference jars; never committed
+/libs/

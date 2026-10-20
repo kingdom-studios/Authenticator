@@ -85,4 +85,26 @@ class ConfigLoaderTest {
 
 		assertEquals("mine: true\n", Files.readString(directory.resolve("config.yml")), "an admin's file is never overwritten");
 	}
+
+	@Test
+	void anOldConfigIsBroughtUpToDateBeforeItIsRead(@TempDir Path directory) throws IOException {
+		final Path file = directory.resolve("config.yml");
+		final java.util.List<String> log = new java.util.ArrayList<>();
+
+		Files.writeString(file, Files.readString(SHIPPED, StandardCharsets.UTF_8).replace("secret: \"\"", "secret: \"0123456789abcdef-test-secret\"").replace("config-version: 1\n", "").replace("      server-ssl-cert: \"\"\n", ""), StandardCharsets.UTF_8);
+
+		ConfigLoader.update(directory, "config.yml", log::add);
+
+		final String updated = Files.readString(file, StandardCharsets.UTF_8);
+
+		assertTrue(updated.contains("config-version: 1") && updated.contains("server-ssl-cert: \"\""));
+		assertTrue(updated.contains("secret: \"0123456789abcdef-test-secret\""));
+		assertTrue(Files.exists(directory.resolve("config.yml.bak")));
+		assertEquals(1, log.stream().filter(line -> line.contains("config.yml.bak")).count(), log.toString());
+		assertEquals("0123456789abcdef-test-secret".length(), ConfigLoader.load(file).bridge().secret().length());
+
+		ConfigLoader.update(directory, "config.yml", log::add);
+
+		assertEquals(updated, Files.readString(file, StandardCharsets.UTF_8));
+	}
 }

@@ -1,5 +1,9 @@
 # Authenticator for Velocity - main configuration. Changes need a proxy restart.
 
+# Version of this file's layout. Do not change it: when a new version of the plugin has new keys, the file is brought up to date at
+# startup (your values are kept, the old file is saved as config.yml.bak).
+config-version: 1
+
 # Unique id of this node in bridge messages and in the node list. Must differ from every Paper server's node id.
 node-id: velocity-1
 

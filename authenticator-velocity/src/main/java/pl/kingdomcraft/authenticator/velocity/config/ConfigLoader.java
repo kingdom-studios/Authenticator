@@ -11,6 +11,7 @@ import org.spongepowered.configurate.ConfigurationNode;
 import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
 import pl.kingdomcraft.authenticator.common.config.ConfigException;
+import pl.kingdomcraft.authenticator.common.config.ConfigUpdater;
 import pl.kingdomcraft.authenticator.common.settings.ProxySettings;
 
 /** Reads config.yml. The YAML is turned into plain maps and lists and handed to {@link ProxySettings}, which is where the rules are (and where they are tested). */
@@ -38,6 +39,19 @@ public final class ConfigLoader {
 			throw new ConfigException(FILE + " is empty. Delete it to get the default back, then restart.");
 
 		return ProxySettings.parse(map, file.toAbsolutePath().getParent());
+	}
+
+	/**
+	 * Brings an existing config up to the layout of the bundled one (new keys with their comments; the admin's values stay), see
+	 * {@link ConfigUpdater}. Run it after {@link #ensureDefault} and before {@link #load}.
+	 */
+	public static void update(Path dataDirectory, String name, java.util.function.Consumer<String> log) throws IOException {
+		try (InputStream stream = ConfigLoader.class.getClassLoader().getResourceAsStream(name)) {
+			if (stream == null)
+				throw new IOException("The default " + name + " is missing from the plugin jar");
+
+			ConfigUpdater.update(dataDirectory.resolve(name), new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8), "config-version", log);
+		}
 	}
 
 	/** Copies a bundled resource into the data folder if the file does not exist yet, so admins get the commented default. */
