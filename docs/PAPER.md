@@ -30,6 +30,18 @@ comments, every value you set stays (your `Properties` entries included), and th
 one exists). The log says what was added; a key the new version no longer has is named there and stays in the backup. A complete file is
 not touched. Leave `Version` as it is.
 
+## "Join the network through its main address"
+
+A server shows this when `auth_presence` has no row for the UUID it sees for the player. The console says why, in a line starting with
+`Refused <name> (<uuid>)`:
+
+* **The UUID is the offline-mode UUID of the name**: the server is not being given the player's profile by Velocity, so it can never match
+  the proxy's record. Set `player-info-forwarding-mode = "modern"` in `velocity.toml`, and in `config/paper-global.yml`
+  `proxies.velocity.enabled: true`, `online-mode: true` and `secret:` the contents of Velocity's `forwarding.secret`. Restart the server.
+* **Any other UUID**: the proxy and this server read different databases (compare the proxy's endpoint and `database.name` with the one
+  named in the line), or the proxy could not write the row (look for `Could not write the login state` in the proxy's log), or the player
+  joined the server directly.
+
 ## The two roles
 
 | | `AUTH` (the waiting server) | `GAME` |

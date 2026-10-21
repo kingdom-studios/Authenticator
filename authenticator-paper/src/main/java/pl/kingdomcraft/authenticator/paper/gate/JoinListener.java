@@ -12,6 +12,7 @@ import org.mineacademy.fo.annotation.AutoRegister;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import pl.kingdomcraft.authenticator.common.gate.BackendCore;
+import pl.kingdomcraft.authenticator.common.gate.JoinDiagnostics;
 import pl.kingdomcraft.authenticator.common.gate.JoinVerifier;
 import pl.kingdomcraft.authenticator.paper.AuthenticatorPaper;
 import pl.kingdomcraft.authenticator.paper.settings.Localization;
@@ -44,6 +45,11 @@ public final class JoinListener implements Listener {
 		}
 
 		final JoinVerifier.LoginDecision decision = core.verifier().checkLogin(event.getUniqueId());
+
+		if (decision.reason() == JoinVerifier.Reason.UNKNOWN_TO_PROXY)
+			for (final String line : JoinDiagnostics.unknownToProxy(event.getName(), event.getUniqueId(),
+					core.settings().database().database() + " on " + core.database().endpoint().address(), core.settings().nodeId()))
+				Common.log("&c" + line);
 
 		if (!decision.allowed())
 			event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, text(switch (decision.reason()) {
