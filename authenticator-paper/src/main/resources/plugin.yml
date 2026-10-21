@@ -1,0 +1,16 @@
+#
+# This is the file your server opens to find the main class of your
+# plugin and its information. We automatically replace variables here
+# from your pom.xml file. YOU GENERALLY DO NOT NEED TO EDIT THIS.
+#
+# See https://www.spigotmc.org/wiki/plugin-yml/ for more information.
+#
+name: ${project.name}
+version: ${project.version}
+main: ${main.class}
+author: ${author}
+api-version: "26.2"
+softdepend: [PlaceholderAPI]
+# The commands are built at runtime so you can change them easily within the settings.
+# Do not change anything in here, you will break the plugin and get no support.
+commands:

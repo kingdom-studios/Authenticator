@@ -1,0 +1,91 @@
+# Messages
+
+Every text a player sees can be replaced in `config.yml` under `messages`, by its key. Texts are [MiniMessage](https://docs.advntr.dev/minimessage/format.html).
+A tag in angle brackets that is listed in the last column (for example `<attempts>`) is replaced by a value; the value is inserted as plain text,
+so a player name can never inject formatting. A key that does not exist stops the plugin from starting, so a typo is noticed at once.
+
+`language: pl` or `language: en` in `config.yml` chooses the built-in texts. The tables show the English text; the Polish one is in
+`authenticator-common/src/main/resources/pl/kingdomcraft/authenticator/common/message/messages_pl.properties`.
+
+```yaml
+messages:
+  login.ok: "<green>Welcome back!"
+```
+
+
+## After joining
+
+| Key | Text | Values |
+|---|---|---|
+| `prompt.login` | `<yellow>Log in: <white>/login [password]` |  |
+| `prompt.register` | `<yellow>Register: <white>/register [password] [password again]` |  |
+| `join.premium` | `<green>Logged in automatically as the owner of an original account.` |  |
+| `join.session` | `<green>Welcome back! You were logged in automatically from your IP address.` |  |
+| `forced.login` | `<green>An administrator logged you in.` |  |
+| `forced.logout` | `<yellow>An administrator logged you out. Log in again: <white>/login [password]` |  |
+
+## Commands
+
+| Key | Text | Values |
+|---|---|---|
+| `login.ok` | `<green>Logged in.` |  |
+| `register.ok` | `<green>Registered and logged in. Remember your password, there is no way to recover it.` |  |
+| `changepassword.ok` | `<green>Your password was changed.` |  |
+| `usage.login` | `<yellow>Usage: <white>/login [password]` |  |
+| `usage.register` | `<yellow>Usage: <white>/register [password] [password again]` |  |
+| `usage.changepassword` | `<yellow>Usage: <white>/changepassword [old password] [new password]` |  |
+| `usage.unregister` | `<yellow>Usage: <white>/unregister [password]` |  |
+| `usage.cracked` | `<yellow>Usage: <white>/cracked [new password] [new password again]` |  |
+| `usage.premium` | `<yellow>Usage: <white>/premium` |  |
+| `outcome.wrong-password` | `<red>Wrong password. Attempts left: <attempts>.` | `<attempts>` |
+| `outcome.not-logged-in` | `<red>Log in first.` |  |
+| `outcome.already-logged-in` | `<red>You are already logged in.` |  |
+| `outcome.already-registered` | `<red>This account is already registered. Log in: <white>/login [password]` |  |
+| `outcome.not-registered` | `<red>Register first: <white>/register [password] [password again]` |  |
+| `outcome.password-mismatch` | `<red>The passwords do not match.` |  |
+| `outcome.too-many-accounts` | `<red>Too many accounts were registered from your IP address (limit: <limit>).` | `<limit>` |
+| `outcome.name-taken` | `<red>That name was just taken.` |  |
+| `outcome.premium-account` | `<red>This is an original account. The command is for accounts with a password.` |  |
+| `outcome.not-premium-account` | `<red>This account has a password. The command is for original accounts.` |  |
+| `outcome.not-original-name` | `<red>Mojang knows no original account with this name, so it cannot be switched to an original one.` |  |
+| `outcome.lookup-failed` | `<red>Could not check the name with Mojang's services. Try again in a moment.` |  |
+| `outcome.confirm-required.premium` | `<yellow>The account will stop asking for a password and Mojang will confirm it is you whenever you join. If your client is not an original one you will not get in any more. To confirm, type <white>/premium</white> again within 30 seconds.` |  |
+| `outcome.confirm-required.cracked` | `<yellow>The account will ask for a password and Mojang will stop confirming it is you. To confirm, type <white>/cracked [new password] [password again]</white> again within 30 seconds.` |  |
+| `outcome.busy` | `<red>The server is busy right now. Try again in a moment.` |  |
+| `outcome.conflict` | `<red>The account changed while the command ran. Try again.` |  |
+| `outcome.error` | `<red>Something went wrong. Try again in a moment or contact the staff.` |  |
+| `weak.too-short` | `<red>The password is too short (at least <min> characters).` | `<min>` |
+| `weak.too-long` | `<red>The password is too long (at most 72 bytes).` |  |
+| `weak.whitespace` | `<red>The password cannot contain spaces.` |  |
+| `weak.same-as-name` | `<red>The password cannot be the same as your name.` |  |
+| `weak.forbidden` | `<red>That password is too common. Choose another one.` |  |
+
+## Kicks
+
+| Key | Text | Values |
+|---|---|---|
+| `kick.timeout` | `<red>You did not log in in time.` |  |
+| `kick.too-many-attempts` | `<red>Too many wrong passwords.` |  |
+| `kick.ip-blocked` | `<red>Too many wrong passwords came from your IP address. It is blocked until <until>.` | `<until>` |
+| `kick.reconnect.premium` | `<green>Done. This account is now an original one. Join the server again.` |  |
+| `kick.reconnect.cracked` | `<green>Done. This account now has a password. Join the server again and log in: <white>/login [password]` |  |
+| `kick.unregistered` | `<yellow>Your account was removed. Join again to create a new one.` |  |
+| `kick.type-changed` | `<yellow>An administrator changed the type of your account. Join the server again.` |  |
+| `kick.no-server` | `<red>The login server is not available right now. Try again in a moment.` |  |
+
+## Refused entry
+
+| Key | Text | Values |
+|---|---|---|
+| `deny.too-many-connections` | `<red>Too many connections from your IP address. Try again in a moment.` |  |
+| `deny.bad-nickname` | `<red>That name is not allowed. Letters, digits and underscores only (3-16 characters).` |  |
+| `deny.ip-blocked` | `<red>Too many wrong passwords came from your IP address. It is blocked until <until>.` | `<until>` |
+| `deny.already-online` | `<red>A player with this name is already on the server.` |  |
+| `deny.wrong-case` | `<red>Join with the name written exactly like this: <white><name></white>` | `<name>` |
+| `deny.premium-lookup-failed` | `<red>Could not check the name with Mojang's services. Try again in a moment.` |  |
+| `deny.database-error` | `<red>Your account cannot be verified right now. Try again in a moment.` |  |
+| `open.database-error` | `<red>Your account cannot be verified right now. Try again in a moment.` |  |
+| `open.name-owned-by-other` | `<red>That name belongs to another original account.` |  |
+| `open.account-type-mismatch` | `<red>That name is registered with another kind of account. Join the way you did last time, or use /premium or /cracked.` |  |
+| `open.rename-conflict` | `<red>Your original account changed its name to one that is already registered. Contact the staff.` |  |
+| `open.unverified-profile` | `<red>Your account could not be confirmed. Join again.` |  |

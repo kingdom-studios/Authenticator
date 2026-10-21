@@ -1,0 +1,73 @@
+# Authenticator staging cluster: MariaDB, Velocity, a Paper AUTH server and a Paper GAME server on one private network.
+#
+#   ./prepare.sh        builds the jars (if needed), writes the secrets to .env and renders every config into data/
+#   docker compose up   starts everything; connect a Minecraft client to localhost:25565
+#
+# Only Velocity (25565) and MariaDB (127.0.0.1:3307, to look at the tables) are published. The Paper servers are NOT reachable from the
+# host: that is the point of the layout, and it is what the "connect around the proxy" test relies on.
+#
+# NOT YET RUN: this file was written without a Docker daemon (see staging/README.md). Expect to adjust image options.
+name: authenticator-staging
+
+x-paper: &paper
+  image: itzg/minecraft-server:java25
+  environment: &paper-env
+    EULA: "TRUE"
+    TYPE: PAPER
+    VERSION: ${PAPER_VERSION:-26.2}
+    MEMORY: 1G
+    ONLINE_MODE: "FALSE"       # the proxy authenticates; modern forwarding makes the backend trust it
+    ENABLE_RCON: "FALSE"
+    CFG_VELOCITY_SECRET: ${FORWARDING_SECRET}
+    PATCH_DEFINITIONS: /patches
+  depends_on:
+    mariadb:
+      condition: service_healthy
+  restart: "no"
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: authenticator
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+      - ./data/mariadb-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  velocity:
+    image: itzg/mc-proxy
+    environment:
+      TYPE: VELOCITY
+      MEMORY: 512M
+    volumes:
+      - ./data/velocity:/server
+    ports:
+      - "25565:25577"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      paper-auth:
+        condition: service_started
+      paper-game:
+        condition: service_started
+    restart: "no"
+
+  paper-auth:
+    <<: *paper
+    volumes:
+      - ./data/paper-auth:/data
+      - ./patches:/patches:ro
+
+  paper-game:
+    <<: *paper
+    volumes:
+      - ./data/paper-game:/data
+      - ./patches:/patches:ro

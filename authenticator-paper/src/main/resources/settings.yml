@@ -1,0 +1,265 @@
+# !-----------------------------------------------------------------------------------------------!
+#                       Welcome to the main configuration of ${project.name}
+# !-----------------------------------------------------------------------------------------------!
+#
+#    This is the main plugin's settings class. You can use SimpleSettings to load values from it,
+#    and update it automatically.
+#
+#    For support and documentation, please visit:
+#    - https://github.com/${author}/${project.name}/wiki
+#
+# !-----------------------------------------------------------------------------------------------!
+#
+#    1) COLOR CODES are supported with the '&' character.
+#       - For usage, see http://minecraftwiki.net/wiki/Formatting_codes
+#       - When you use them, place quotes around the message like this: "Hello &cworld."
+#       - To use HEX colors, use #123456 syntax: "Hello #123456world."
+#
+#    2) TO HIDE any message, set it to 'none'.
+#
+#    3) For UNICODE CHARACTERS (smileys, symbols, ..), save the file in UTF-8 encoding. See
+#       - https://github.com/${author}/${project.name}/wiki/Use-Right-Encoding
+#
+#    4) JSON is supported.
+#       - For usage, see https://github.com/${author}/${project.name}/wiki/JSON
+#
+#    5) WHITELISTS can be turned into blacklists, by putting "@blacklist" on the first line.
+#       - Doing such, filters will only apply for messages in those lists.
+#
+#    PS: Everything above applies for all files in ${project.name}/ folder.
+#
+# !-----------------------------------------------------------------------------------------------!
+
+# -------------------------------------------------------------------------------------------------
+# Unique id of this server in bridge messages and in the node list. Must differ from the proxy's
+# node-id and from every other Paper server.
+# -------------------------------------------------------------------------------------------------
+Node_Id: "paper-1"
+
+# -------------------------------------------------------------------------------------------------
+# What this server is for.
+#
+#   AUTH - the waiting server (lobby of the login). Players who have not logged in yet are let in and
+#          kept frozen until the proxy has logged them in; the proxy then moves them on.
+#   GAME - a server where the game is played. A player who has not logged in is refused at the door,
+#          a second line of defence in case the proxy ever sends one by mistake.
+#
+# Every server, whatever its role, freezes a player whose login is taken back (an admin logged them
+# out, their account was removed) until the proxy has dealt with them. The default is the strict one.
+# -------------------------------------------------------------------------------------------------
+Server:
+  Role: GAME
+
+# -------------------------------------------------------------------------------------------------
+# What a player who has not logged in can and cannot do, and how fast this server learns that they
+# have. Everything is blocked: moving, chat, commands (and the command suggestions), blocks, items,
+# inventories, damage, hunger, portals. Nothing is configurable on that on purpose.
+#
+#   Poll_Seconds         - how often the database is read for the players on this server. The proxy's
+#                          message makes a change visible at once; this is what catches the cases
+#                          where a message got lost, and it is the only way if Bridge.Mode is
+#                          database-only.
+#   Hide_Unauthenticated - players who have not logged in are hidden from everyone else.
+#   Message_Cooldown_Seconds - how often a frozen player is reminded that they have to log in when they
+#                          try something; 0 for never (the actions are blocked either way).
+# -------------------------------------------------------------------------------------------------
+Gate:
+  Poll_Seconds: 2
+  Hide_Unauthenticated: true
+  Message_Cooldown_Seconds: 3
+
+# -------------------------------------------------------------------------------------------------
+# Where players who have not logged in are put when they join an AUTH server. An empty World leaves
+# them where the server puts them. Ignored on GAME servers.
+# -------------------------------------------------------------------------------------------------
+Login_Spawn:
+  World: ""
+  X: 0.5
+  Y: 64.0
+  Z: 0.5
+  Yaw: 0.0
+  Pitch: 0.0
+
+# -------------------------------------------------------------------------------------------------
+# The shared MariaDB database (10.11 or newer), the same one the proxy uses.
+#
+# The proxy sits outside the infrastructure and reaches the database on its public address; Paper
+# servers sit inside and use the private one. Describe both endpoints here, then pick one with Use.
+#
+#   Use       - the endpoint tried first. Paper servers normally use "private".
+#   Fallback  - endpoints tried, in order, if Use cannot be reached (e.g. [public]). Empty: none.
+#               The choice is made at startup; restart after the network is back to return to Use.
+#   Ssl_Mode  - disable | trust | verify-ca | verify-full.
+#               "disable" is not allowed on the public endpoint, which crosses an untrusted network.
+#               trust encrypts but does not check the certificate; verify-full checks chain and host name.
+#   Server_Ssl_Cert - optional. The CA certificate (.pem) the database server's certificate is checked against, for a
+#               server whose certificate is not signed by a CA Java already trusts (a self-signed or private CA;
+#               without it MariaDB fails with "Self signed certificates. Either set sslMode=trust ..."). Write a normal
+#               path: absolute (/home/minecraft/plugins/Authenticator/db-ca.pem) or relative to this plugin's folder
+#               (db-ca.pem). It is turned into the file:/// URL the driver needs. A value that already starts with
+#               file:, classpath: or -----BEGIN CERTIFICATE----- is used as written. A file that is missing or cannot
+#               be read stops the plugin from starting, and says which path. Empty: not used.
+#   Properties - extra driver options. serverSslCert here works like Server_Ssl_Cert above (the same path conversion);
+#               if both are set, Server_Ssl_Cert wins.
+#
+# Paper servers never change the schema: they only check that it is the version this build needs.
+# The proxy applies migrations, so start it first after an update.
+# -------------------------------------------------------------------------------------------------
+Database:
+  Use: private
+  Fallback: []
+  Name: "authenticator"
+  Pool_Size: 6
+  Connection_Timeout_Ms: 10000
+  Endpoints:
+    Private:
+      Host: "10.0.0.5"
+      Port: 3306
+      User: "auth_backend"
+      Password: ""
+      Ssl_Mode: disable
+      Server_Ssl_Cert: ""
+      Properties: {}
+    Public:
+      Host: "db.example.com"
+      Port: 3306
+      User: "auth_backend"
+      Password: ""
+      Ssl_Mode: verify-full
+      Server_Ssl_Cert: ""
+      Properties: {}
+
+# -------------------------------------------------------------------------------------------------
+# How the proxy tells this server about a player's login state. Whatever the mode, the database (table
+# auth_presence) is the source of truth, and this server checks it whenever a player joins; a message only
+# makes a change visible sooner.
+#
+#   plugin-messaging - DEFAULT. Signed messages through the player's own connection. Needs no extra service.
+#   redis            - Signed messages through Redis (see the Redis section below).
+#   database-only    - No messages; only the database. Needs no Secret.
+#
+#   Secret           - REQUIRED unless Mode is database-only. At least 16 characters, identical to the proxy's.
+#                      Every message is signed with it; anything else is ignored.
+#   Max_Skew_Seconds - messages whose time differs from this server's clock by more than this are dropped,
+#                      so keep the clocks of all machines synchronized (NTP).
+# -------------------------------------------------------------------------------------------------
+Bridge:
+  Mode: plugin-messaging
+  Secret: ""
+  Max_Skew_Seconds: 30
+
+# -------------------------------------------------------------------------------------------------
+# Redis is OPTIONAL: this section is only used when Bridge.Mode is redis, and ignored otherwise.
+#
+# Use, Fallback and the two endpoints work like in Database. The public endpoint must use Ssl: true.
+#
+#   Verify_Hostname   - with Ssl, check that the certificate is valid for Host.
+#   Ssl_Trust_Store   - PKCS12 (or .jks) file with the certificates to trust, for a server whose
+#                       certificate comes from your own CA. Empty: trust what Java trusts.
+# -------------------------------------------------------------------------------------------------
+Redis:
+  Use: private
+  Fallback: []
+  Prefix: "authenticator:"
+  Endpoints:
+    Private:
+      Host: "10.0.0.6"
+      Port: 6379
+      User: ""
+      Password: ""
+      Ssl: false
+      Database: 0
+      Connect_Timeout_Ms: 5000
+    Public:
+      Host: "redis.example.com"
+      Port: 6379
+      User: ""
+      Password: ""
+      Ssl: true
+      Verify_Hostname: true
+      Ssl_Trust_Store: ""
+      Ssl_Trust_Store_Password: ""
+      Database: 0
+      Connect_Timeout_Ms: 5000
+
+# -------------------------------------------------------------------------------------------------
+# Used by the admin commands only. /auth setpremium asks the services below whether a name is an
+# original account (the same as the proxy's premium.apis); /auth changepassword and /auth setcracked
+# hash the new password with the algorithm below. Whatever is chosen here is understood by the proxy
+# (BCrypt, SHA-256, SHA-512 and Argon2 are all verified there), so the two need not match.
+# -------------------------------------------------------------------------------------------------
+Premium:
+  Apis: [mojang, ashcon, minetools]
+  Timeout_Ms: 3000
+
+Passwords:
+  Algorithm: bcrypt
+  Bcrypt_Cost: 12
+  Argon2:
+    Memory_Kib: 19456
+    Iterations: 2
+    Parallelism: 1
+  Min_Length: 6
+  # Passwords that are refused whatever their length (compared ignoring case).
+  Forbidden: [123456, 12345678, password, qwerty, 111111, abc123, letmein]
+
+# -------------------------------------------------------------------------------------------------
+# Where /auth migrate minelogin reads accounts from. It only reads. Empty Schema means the database
+# Authenticator itself uses.
+# -------------------------------------------------------------------------------------------------
+Migration:
+  Minelogin:
+    Schema: ""
+    Table: mineLogin
+
+# -------------------------------------------------------------------------------------------------
+# The formats used in the {date}, {date_short}, {date_month} and {location}. 
+#
+# See the link below to learn how to edit the date format:
+# https://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html
+# -------------------------------------------------------------------------------------------------
+Date_Format: "dd.MM.yyyy HH:mm:ss"
+Date_Format_Short: "dd.MM.yyyy HH:mm"
+Date_Format_Month: "dd.MM HH:mm"
+Location_Format: "{world} {x}, {y}, {z}"
+
+# -------------------------------------------------------------------------------------------------
+# What commands should trigger the main plugin command group?
+#
+# * THE FIRST ALIAS IS THE MAIN LABEL, YOU CAN CHANGE IT BUT DO NOT REMOVE IT. *
+# * Not "authadmin": the proxy has a command of that name (status and the import) and a command
+#   registered on the proxy wins over this one for players. *
+# * EXAMPLE: [boss, b] will trigger your main command from "/boss" or "/b" * 
+# -------------------------------------------------------------------------------------------------
+Command_Aliases: [auth, authenticator]
+
+# -------------------------------------------------------------------------------------------------
+# What language should we use for messages: pl or en. The language file will be copied 
+# to your messages/ folder where you can edit it.
+# -------------------------------------------------------------------------------------------------
+Locale: pl
+
+# -------------------------------------------------------------------------------------------------
+# The prefix used in front of most chat or console messages. You can manually use it with
+# {plugin_prefix} variable anywhere.
+# -------------------------------------------------------------------------------------------------
+Prefix: "&8[&c${project.name}&8]&7"
+
+# -------------------------------------------------------------------------------------------------
+# Time of some plugin's operations is measured. You can also use the LagCatcher class to invoke
+# this feature. We log a console message if an operation takes over the time below (milliseconds). 
+# Set to -1 to disable.
+# -------------------------------------------------------------------------------------------------
+Log_Lag_Over_Milis: 100
+
+# -------------------------------------------------------------------------------------------------
+# List of section names that will print informative messages about this plugin's features.
+# The Debugger class utilizes this key and will only print messages for sections enabled below.
+# -------------------------------------------------------------------------------------------------
+Debug: []
+
+# -------------------------------------------------------------------------------------------------
+# Do not change this value, otherwise it will corrupt your plugin installation!
+# NB: Don't forget to keep this up-to-date with the getConfigVersion method in your Settings class. 
+# -------------------------------------------------------------------------------------------------
+Version: 1

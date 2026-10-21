@@ -1,0 +1,5 @@
+# <version> <file>. Versions must be strictly ascending. Never edit a released migration: add a new one.
+1 V1__accounts.sql
+2 V2__sessions_and_presence.sql
+3 V3__ip_blocks_and_premium_cache.sql
+4 V4__audit.sql
